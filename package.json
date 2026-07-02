@@ -1,0 +1,28 @@
+{
+  "name": "discord-attendance-vote-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for Bang Chiến attendance voting with SQLite persistence",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy:commands": "node scripts/deploy-commands.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "discord",
+    "discord-bot",
+    "sqlite",
+    "attendance",
+    "voting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.20.0",
+    "dotenv": "^16.6.1"
+  }
+}

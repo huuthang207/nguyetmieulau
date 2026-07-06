@@ -4,16 +4,26 @@ const { createDatabase } = require('./db/database');
 const { createRepositories } = require('./db/repositories');
 const { createSettingsService } = require('./services/settings-service');
 const { createVoteService } = require('./services/vote-service');
+const { createProfileService } = require('./services/profile-service');
+const { createDataExchangeService } = require('./services/data-exchange-service');
 const { commandMap } = require('./commands');
-const { handleVoteButton } = require('./interactions/vote-buttons');
+const { handleVoteButton, handleVoteDetailSelect } = require('./interactions/vote-buttons');
 
 validateRuntimeEnv();
 
 const db = createDatabase();
 const repositories = createRepositories(db);
+const profileService = createProfileService(repositories);
+const voteService = createVoteService(repositories);
 const services = {
   settingsService: createSettingsService(repositories),
-  voteService: createVoteService(repositories),
+  profileService,
+  voteService,
+  dataExchangeService: createDataExchangeService({
+    repositories,
+    profileService,
+    voteService,
+  }),
 };
 
 const context = {
@@ -34,6 +44,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isButton()) {
       const handled = await handleVoteButton(interaction, context);
+      if (handled) {
+        return;
+      }
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      const handled = await handleVoteDetailSelect(interaction, context);
       if (handled) {
         return;
       }

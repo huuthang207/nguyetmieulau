@@ -7,10 +7,13 @@ const { createDatabase } = require('../src/db/database');
 const { createRepositories } = require('../src/db/repositories');
 const { createSettingsService } = require('../src/services/settings-service');
 const { createVoteService } = require('../src/services/vote-service');
+const { createProfileService } = require('../src/services/profile-service');
+const { createDataExchangeService } = require('../src/services/data-exchange-service');
 const voteConfigCommand = require('../src/commands/vote-config');
 const voteCloseCommand = require('../src/commands/vote-dong');
 const voteViewCommand = require('../src/commands/vote-xem');
 const voteHistoryCommand = require('../src/commands/vote-lich-su');
+const profileCommand = require('../src/commands/profile');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-auth-test-'));
@@ -121,6 +124,15 @@ function createInteraction({ guild, member, options = {}, userId = 'user-1' }) {
       getInteger(name) {
         return options[name] ?? null;
       },
+      getString(name) {
+        return options[name] ?? null;
+      },
+      getUser(name) {
+        return options[name] ?? null;
+      },
+      getAttachment(name) {
+        return options[name] ?? null;
+      },
     },
     async reply(payload) {
       replies.push(payload);
@@ -131,9 +143,17 @@ function createInteraction({ guild, member, options = {}, userId = 'user-1' }) {
 function createContext() {
   const db = createDatabase(createTempDatabasePath());
   const repositories = createRepositories(db);
+  const profileService = createProfileService(repositories);
+  const voteService = createVoteService(repositories);
   const services = {
     settingsService: createSettingsService(repositories),
-    voteService: createVoteService(repositories),
+    profileService,
+    voteService,
+    dataExchangeService: createDataExchangeService({
+      repositories,
+      profileService,
+      voteService,
+    }),
   };
 
   return { db, repositories, services };
@@ -173,7 +193,7 @@ test('vote-xem and vote-lich-su reject unauthorized users', async () => {
   context.db.close();
 });
 
-test('vote-dong updates public message and disables buttons for the closed vote', async () => {
+test('vote-dong disables vote buttons but keeps details button enabled for the closed vote', async () => {
   const context = createContext();
   const adminRole = createRole('admin-role');
   const attendanceChannel = createTextChannel();
@@ -207,7 +227,13 @@ test('vote-dong updates public message and disables buttons for the closed vote'
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Đã đóng vote hiện tại/);
   assert.ok(message.lastPayload);
-  assert.equal(message.lastPayload.components[0].components.every((component) => component.data.disabled === true), true);
+  assert.equal(message.lastPayload.components[0].components.length, 4);
+
+  const [joinButton, reserveButton, absentButton, detailsButton] = message.lastPayload.components[0].components;
+  assert.equal(joinButton.data.disabled, true);
+  assert.equal(reserveButton.data.disabled, true);
+  assert.equal(absentButton.data.disabled, true);
+  assert.equal(detailsButton.data.disabled, false);
   assert.equal(context.services.voteService.getOpenVote(guild.id), null);
 
   context.db.close();

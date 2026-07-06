@@ -6,6 +6,7 @@ const path = require('node:path');
 const { createDatabase } = require('../src/db/database');
 const { createRepositories } = require('../src/db/repositories');
 const { createVoteService, HISTORY_MAX_LIMIT } = require('../src/services/vote-service');
+const { createProfileService } = require('../src/services/profile-service');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-test-'));
@@ -17,10 +18,19 @@ test('database migrations create required tables and support vote lifecycle', ()
   const db = createDatabase(databasePath);
   const repositories = createRepositories(db);
   const voteService = createVoteService(repositories);
+  const profileService = createProfileService(repositories);
 
   repositories.setGuildAdminRole('guild-1', 'admin-role', new Date().toISOString());
   repositories.setGuildMemberRole('guild-1', 'member-role', new Date().toISOString());
   repositories.setGuildAttendanceChannel('guild-1', 'channel-1', new Date().toISOString());
+
+  const savedProfile = profileService.saveProfile({
+    guildId: 'guild-1',
+    userId: 'member-1',
+    ingameName: 'Thang207',
+    monPhai: 'Tố Vấn',
+  });
+  assert.equal(savedProfile.ok, true);
 
   const vote = voteService.createVote({
     guildId: 'guild-1',
@@ -34,18 +44,23 @@ test('database migrations create required tables and support vote lifecycle', ()
   assert.equal(vote.status, 'open');
   assert.equal(repositories.getOpenVote('guild-1').id, vote.id);
 
-  const firstChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'join');
+  const firstChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'join', savedProfile.profile);
   assert.equal(firstChoice.created, true);
   assert.equal(firstChoice.summary.joinCount, 1);
   assert.equal(firstChoice.summary.totalCount, 1);
+  assert.deepEqual(firstChoice.summary.joinMonPhaiBreakdown, [{ monPhai: 'Tố Vấn', count: 1 }]);
 
-  const changedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve');
+  const responseAfterFirstVote = repositories.getVoteResponse(vote.id, 'member-1');
+  assert.equal(responseAfterFirstVote.snapshot_ingame_name, 'Thang207');
+  assert.equal(responseAfterFirstVote.snapshot_mon_phai, 'Tố Vấn');
+
+  const changedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
   assert.equal(changedChoice.created, false);
   assert.equal(changedChoice.changed, true);
   assert.equal(changedChoice.summary.joinCount, 0);
   assert.equal(changedChoice.summary.reserveCount, 1);
 
-  const unchangedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve');
+  const unchangedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
   assert.equal(unchangedChoice.changed, false);
 
   const closed = voteService.closeVote(vote.id);

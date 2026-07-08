@@ -61,6 +61,13 @@ function createRepositories(db) {
     );
   }
 
+  async function findMemberProfileByGameId(guildId, gameId) {
+    return db.queryOne(
+      'SELECT * FROM member_profiles WHERE guild_id = ? AND game_id = ?',
+      [guildId, gameId],
+    );
+  }
+
   async function listMemberProfiles(guildId) {
     return db.queryAll(
       `
@@ -73,34 +80,54 @@ function createRepositories(db) {
     );
   }
 
-  async function upsertMemberProfile(guildId, userId, ingameName, monPhai, updatedAt) {
+  async function upsertMemberProfile(guildId, userId, ingameName, gameId, monPhai, updatedAt) {
     if (isMysql) {
       await db.execute(
         `
-        INSERT INTO member_profiles (guild_id, user_id, ingame_name, mon_phai, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO member_profiles (guild_id, user_id, ingame_name, game_id, mon_phai, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           ingame_name = VALUES(ingame_name),
+          game_id = VALUES(game_id),
           mon_phai = VALUES(mon_phai),
           updated_at = VALUES(updated_at)
         `,
-        [guildId, userId, ingameName, monPhai, updatedAt],
+        [guildId, userId, ingameName, gameId, monPhai, updatedAt],
       );
     } else {
       await db.execute(
         `
-        INSERT INTO member_profiles (guild_id, user_id, ingame_name, mon_phai, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO member_profiles (guild_id, user_id, ingame_name, game_id, mon_phai, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(guild_id, user_id) DO UPDATE SET
           ingame_name = excluded.ingame_name,
+          game_id = excluded.game_id,
           mon_phai = excluded.mon_phai,
           updated_at = excluded.updated_at
         `,
-        [guildId, userId, ingameName, monPhai, updatedAt],
+        [guildId, userId, ingameName, gameId, monPhai, updatedAt],
       );
     }
 
     return getMemberProfile(guildId, userId);
+  }
+
+  async function setMemberProfileBankQr(guildId, userId, bankQrUrl, updatedAt) {
+    await db.execute(
+      `
+      UPDATE member_profiles
+      SET bank_qr_url = ?,
+          updated_at = ?
+      WHERE guild_id = ? AND user_id = ?
+      `,
+      [bankQrUrl, updatedAt, guildId, userId],
+    );
+
+    return getMemberProfile(guildId, userId);
+  }
+
+  async function removeMemberProfileBankQr(guildId, userId, updatedAt) {
+    return setMemberProfileBankQr(guildId, userId, null, updatedAt);
   }
 
   async function upsertMemberProfiles(guildId, profiles, updatedAt) {
@@ -109,26 +136,28 @@ function createRepositories(db) {
         if (isMysql) {
           await tx.execute(
             `
-            INSERT INTO member_profiles (guild_id, user_id, ingame_name, mon_phai, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO member_profiles (guild_id, user_id, ingame_name, game_id, mon_phai, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
               ingame_name = VALUES(ingame_name),
+              game_id = VALUES(game_id),
               mon_phai = VALUES(mon_phai),
               updated_at = VALUES(updated_at)
             `,
-            [guildId, profile.userId, profile.ingameName, profile.monPhai, updatedAt],
+            [guildId, profile.userId, profile.ingameName, profile.gameId, profile.monPhai, updatedAt],
           );
         } else {
           await tx.execute(
             `
-            INSERT INTO member_profiles (guild_id, user_id, ingame_name, mon_phai, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO member_profiles (guild_id, user_id, ingame_name, game_id, mon_phai, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id, user_id) DO UPDATE SET
               ingame_name = excluded.ingame_name,
+              game_id = excluded.game_id,
               mon_phai = excluded.mon_phai,
               updated_at = excluded.updated_at
             `,
-            [guildId, profile.userId, profile.ingameName, profile.monPhai, updatedAt],
+            [guildId, profile.userId, profile.ingameName, profile.gameId, profile.monPhai, updatedAt],
           );
         }
       }
@@ -392,8 +421,11 @@ function createRepositories(db) {
     setGuildAdminRole,
     getMemberProfile,
     findMemberProfileByIngameName,
+    findMemberProfileByGameId,
     listMemberProfiles,
     upsertMemberProfile,
+    setMemberProfileBankQr,
+    removeMemberProfileBankQr,
     upsertMemberProfiles,
     createVote,
     deleteVote,

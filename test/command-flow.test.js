@@ -9,10 +9,10 @@ const { createSettingsService } = require('../src/services/settings-service');
 const { createVoteService } = require('../src/services/vote-service');
 const { createProfileService } = require('../src/services/profile-service');
 const { createDataExchangeService } = require('../src/services/data-exchange-service');
-const voteCreateCommand = require('../src/commands/vote-tao');
-const voteCloseCommand = require('../src/commands/vote-dong');
-const profileCommand = require('../src/commands/profile');
-const memberPanelCommand = require('../src/commands/member-panel');
+const configCommand = require('../src/commands/config');
+const helpCommand = require('../src/commands/help');
+const memberCommand = require('../src/commands/member');
+const voteCommand = require('../src/commands/vote');
 const { handleVoteButton, handleVoteDetailSelect } = require('../src/interactions/vote-buttons');
 const { handleMemberPanelSelect, handleMemberProfileModal } = require('../src/interactions/member-panel');
 const {
@@ -20,6 +20,7 @@ const {
   MEMBER_PROFILE_MON_PHAI_SELECT_ID,
   MEMBER_PROFILE_MODAL_PREFIX,
   MEMBER_PROFILE_INGAME_NAME_INPUT_ID,
+  MEMBER_PROFILE_GAME_ID_INPUT_ID,
 } = require('../src/services/member-panel-service');
 
 function createTempDatabasePath() {
@@ -202,7 +203,7 @@ function createSelectInteraction({ guild, member, value, userId = 'member-1', cu
   };
 }
 
-function createModalInteraction({ guild, member, customId, ingameName, userId = 'member-1' }) {
+function createModalInteraction({ guild, member, customId, ingameName, gameId = 'game-id-1', userId = 'member-1' }) {
   const replies = [];
 
   return {
@@ -214,8 +215,11 @@ function createModalInteraction({ guild, member, customId, ingameName, userId = 
     replies,
     fields: {
       getTextInputValue(inputId) {
-        assert.equal(inputId, MEMBER_PROFILE_INGAME_NAME_INPUT_ID);
-        return ingameName;
+        if (inputId === MEMBER_PROFILE_INGAME_NAME_INPUT_ID) {
+          return ingameName;
+        }
+        assert.equal(inputId, MEMBER_PROFILE_GAME_ID_INPUT_ID);
+        return gameId;
       },
     },
     async reply(payload) {
@@ -255,9 +259,10 @@ test('member-panel post sends panel message for admin and rejects unauthorized u
     guild,
     member: createMember(),
     channel: memberChannel,
+    options: { subcommand: 'panel' },
   });
 
-  await memberPanelCommand.execute(unauthorizedInteraction, context);
+  await memberCommand.execute(unauthorizedInteraction, context);
   assert.match(unauthorizedInteraction.replies[0].content, /không có quyền quản trị bot/);
   assert.equal(memberChannel.sentMessages.size, 0);
 
@@ -265,9 +270,10 @@ test('member-panel post sends panel message for admin and rejects unauthorized u
     guild,
     member: createMember({ roleIds: ['admin-role'] }),
     channel: memberChannel,
+    options: { subcommand: 'panel' },
   });
 
-  await memberPanelCommand.execute(adminInteraction, context);
+  await memberCommand.execute(adminInteraction, context);
 
   assert.match(adminInteraction.replies[0].content, /Đã tạo member management panel/);
   assert.equal(memberChannel.sentMessages.size, 1);
@@ -277,6 +283,7 @@ test('member-panel post sends panel message for admin and rejects unauthorized u
   assert.equal(select.data.custom_id, MEMBER_PANEL_MENU_ID);
   assert.deepEqual(select.options.map((option) => option.data.value), [
     'member-profile:update',
+    'member-profile:update-bank-qr',
     'member-profile:view',
   ]);
 
@@ -292,6 +299,7 @@ test('member panel can view existing and missing profiles', async () => {
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'Aki',
+    gameId: 'gid-Aki',
     monPhai: 'Thiết Y',
   });
 
@@ -304,6 +312,7 @@ test('member panel can view existing and missing profiles', async () => {
 
   assert.equal(await handleMemberPanelSelect(existingInteraction, context), true);
   assert.match(existingInteraction.replies[0].content, /Aki/);
+  assert.match(existingInteraction.replies[0].content, /gid-Aki/);
   assert.match(existingInteraction.replies[0].content, /Thiết Y/);
   assert.equal(existingInteraction.replies[0].ephemeral, true);
 
@@ -331,6 +340,7 @@ test('member panel update flow shows current profile, opens modal, and saves pro
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'TenCu',
+    gameId: 'gid-TenCu',
     monPhai: 'Tố Vấn',
   });
 
@@ -356,12 +366,14 @@ test('member panel update flow shows current profile, opens modal, and saves pro
   assert.equal(selectMonPhaiInteraction.modals.length, 1);
   assert.equal(selectMonPhaiInteraction.modals[0].data.custom_id, `${MEMBER_PROFILE_MODAL_PREFIX}long-ngam`);
   assert.equal(selectMonPhaiInteraction.modals[0].components[0].components[0].data.value, 'TenCu');
+  assert.equal(selectMonPhaiInteraction.modals[0].components[1].components[0].data.value, 'gid-TenCu');
 
   const modalInteraction = createModalInteraction({
     guild,
     member: createMember({ roleIds: ['member-role'] }),
     customId: `${MEMBER_PROFILE_MODAL_PREFIX}long-ngam`,
     ingameName: 'TenMoi',
+    gameId: 'gid-TenMoi',
   });
 
   assert.equal(await handleMemberProfileModal(modalInteraction, context), true);
@@ -371,6 +383,7 @@ test('member panel update flow shows current profile, opens modal, and saves pro
 
   const profile = await context.services.profileService.getProfile(guild.id, 'member-1');
   assert.equal(profile.ingame_name, 'TenMoi');
+  assert.equal(profile.game_id, 'gid-TenMoi');
   assert.equal(profile.mon_phai, 'Long Ngâm');
 
   await context.db.close();
@@ -385,6 +398,7 @@ test('member panel update flow rejects invalid inputs and unauthorized users', a
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'TrungLap',
+    gameId: 'gid-TrungLap',
     monPhai: 'Tố Vấn',
   });
 
@@ -414,6 +428,7 @@ test('member panel update flow rejects invalid inputs and unauthorized users', a
     member: createMember({ roleIds: ['member-role'] }),
     customId: `${MEMBER_PROFILE_MODAL_PREFIX}sai-phai`,
     ingameName: 'NameMoi',
+    gameId: 'gid-NameMoi',
     userId: 'member-2',
   });
 
@@ -425,11 +440,34 @@ test('member panel update flow rejects invalid inputs and unauthorized users', a
     member: createMember({ roleIds: ['member-role'] }),
     customId: `${MEMBER_PROFILE_MODAL_PREFIX}thiet-y`,
     ingameName: 'TrungLap',
+    gameId: 'gid-Other',
     userId: 'member-2',
   });
 
   assert.equal(await handleMemberProfileModal(duplicateModal, context), true);
-  assert.match(duplicateModal.replies[0].content, /đã tồn tại/);
+  assert.match(duplicateModal.replies[0].content, /ingame_name.*đã tồn tại/);
+
+  const duplicateGameIdModal = createModalInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: `${MEMBER_PROFILE_MODAL_PREFIX}thiet-y`,
+    ingameName: 'TenKhac',
+    gameId: 'gid-TrungLap',
+    userId: 'member-2',
+  });
+
+  assert.equal(await handleMemberProfileModal(duplicateGameIdModal, context), true);
+  assert.match(duplicateGameIdModal.replies[0].content, /game_id.*đã tồn tại/);
+
+  const qrGuidanceInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PANEL_MENU_ID,
+    value: 'member-profile:update-bank-qr',
+  });
+
+  assert.equal(await handleMemberPanelSelect(qrGuidanceInteraction, context), true);
+  assert.match(qrGuidanceInteraction.replies[0].content, /set-qr/);
 
   await context.db.close();
 });
@@ -458,6 +496,7 @@ test('vote-tao creates a public vote message and stores message id', async () =>
     member: createMember({ isAdministrator: true }),
     userId: 'admin-user',
     options: {
+      subcommand: 'create',
       title: 'Bang Chiến tối nay',
       event_time: '20:00 05/07/2026',
       description: null,
@@ -465,7 +504,7 @@ test('vote-tao creates a public vote message and stores message id', async () =>
     },
   });
 
-  await voteCreateCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Đã tạo vote mới/);
@@ -504,6 +543,7 @@ test('vote-tao can mention member role when ping_member is enabled', async () =>
     guild,
     member: createMember({ isAdministrator: true }),
     options: {
+      subcommand: 'create',
       title: 'Bang Chiến cuối tuần',
       event_time: '21:00 12/07/2026',
       description: 'Ping toàn bộ thành viên',
@@ -511,7 +551,7 @@ test('vote-tao can mention member role when ping_member is enabled', async () =>
     },
   });
 
-  await voteCreateCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
 
   const sentMessage = attendanceChannel.sentMessages.get('msg-1');
   assert.equal(sentMessage.payloads[0].content, `<@&${memberRole.id}>`);
@@ -539,6 +579,7 @@ test('vote-tao blocks creating a second open vote', async () => {
     guild,
     member: createMember({ isAdministrator: true }),
     options: {
+      subcommand: 'create',
       title: 'Vote mới',
       event_time: 'slot-2',
       description: null,
@@ -554,7 +595,7 @@ test('vote-tao blocks creating a second open vote', async () => {
     issues: [],
   });
 
-  await voteCreateCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /đã có một vote đang mở/);
@@ -568,9 +609,10 @@ test('vote-dong reports when there is no active vote', async () => {
   const interaction = createChatInputInteraction({
     guild: createGuild({ roles: {}, channels: {} }),
     member: createMember({ isAdministrator: true }),
+    options: { subcommand: 'close' },
   });
 
-  await voteCloseCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Hiện không có vote nào đang mở/);
@@ -587,6 +629,7 @@ test('vote button records member choice and updates current message payload', as
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'Thang207',
+    gameId: 'gid-Thang207',
     monPhai: 'Tố Vấn',
   });
 
@@ -669,16 +712,19 @@ test('profile command allows admin set-member', async () => {
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'set-member',
+      subcommand: 'set-other',
       member: { id: 'member-3' },
       ingame_name: 'NewName',
+      game_id: 'game-new-name',
       mon_phai: 'Long Ngâm',
     },
   });
 
-  await profileCommand.execute(adminSetMemberInteraction, context);
+  await memberCommand.execute(adminSetMemberInteraction, context);
   assert.match(adminSetMemberInteraction.replies[0].content, /Đã cập nhật profile/);
-  assert.equal((await context.services.profileService.getProfile(guild.id, 'member-3')).ingame_name, 'NewName');
+  const savedAdminProfile = await context.services.profileService.getProfile(guild.id, 'member-3');
+  assert.equal(savedAdminProfile.ingame_name, 'NewName');
+  assert.equal(savedAdminProfile.game_id, 'game-new-name');
 
   await context.db.close();
 });
@@ -692,6 +738,7 @@ test('profile export-attendance uses open vote by default', async () => {
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'Exporter',
+    gameId: 'gid-Exporter',
     monPhai: 'Thần Tương',
   });
 
@@ -710,11 +757,11 @@ test('profile export-attendance uses open vote by default', async () => {
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'export-attendance',
+      subcommand: 'export',
     },
   });
 
-  await profileCommand.execute(exportInteraction, context);
+  await voteCommand.execute(exportInteraction, context);
   assert.match(exportInteraction.replies[0].content, /export attendance cho vote/);
   assert.equal(exportInteraction.replies[0].files.length, 1);
 
@@ -737,12 +784,12 @@ test('profile import-members rejects invalid payload type', async () => {
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'import-members',
+      subcommand: 'import',
       file: { url: 'https://example.invalid/file.json' },
     },
   });
 
-  await profileCommand.execute(importInteraction, context);
+  await memberCommand.execute(importInteraction, context);
   assert.match(importInteraction.replies[0].content, /member_profiles/);
 
   await context.db.close();
@@ -760,6 +807,7 @@ test('profile import-members imports valid JSON payload', async () => {
       {
         discord_user_id: 'member-9',
         ingame_name: 'Importer',
+        game_id: 'game-importer',
         mon_phai: 'Cửu Linh',
       },
     ],
@@ -770,14 +818,125 @@ test('profile import-members imports valid JSON payload', async () => {
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'import-members',
+      subcommand: 'import',
       file: { url: 'https://example.invalid/file.json' },
     },
   });
 
-  await profileCommand.execute(importInteraction, context);
+  await memberCommand.execute(importInteraction, context);
   assert.match(importInteraction.replies[0].content, /import thành công 1 member profile/);
   assert.equal((await context.services.profileService.getProfile(guild.id, 'member-9')).ingame_name, 'Importer');
+
+  await context.db.close();
+});
+
+test('member view shows the current user profile', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'SelfViewer',
+    gameId: 'game-self-viewer',
+    monPhai: 'Tố Vấn',
+  });
+
+  const viewInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    userId: 'member-1',
+    options: { subcommand: 'view' },
+  });
+
+  await memberCommand.execute(viewInteraction, context);
+  assert.match(viewInteraction.replies[0].content, /SelfViewer/);
+  assert.match(viewInteraction.replies[0].content, /game-self-viewer/);
+  assert.equal(viewInteraction.replies[0].ephemeral, true);
+
+  await context.db.close();
+});
+
+test('profile set-qr and remove-qr are available to members with profile', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'QrMember',
+    gameId: 'game-qr-member',
+    monPhai: 'Huyết Hà',
+  });
+
+  const setQrInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    userId: 'member-1',
+    options: {
+      subcommand: 'set-qr',
+      file: {
+        url: 'https://cdn.example/qr.png',
+        contentType: 'image/png',
+        size: 1024,
+      },
+    },
+  });
+
+  await memberCommand.execute(setQrInteraction, context);
+  assert.match(setQrInteraction.replies[0].content, /Đã lưu QR/);
+  assert.equal((await context.services.profileService.getProfile(guild.id, 'member-1')).bank_qr_url, 'https://cdn.example/qr.png');
+
+  const removeQrInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    userId: 'member-1',
+    options: {
+      subcommand: 'remove-qr',
+    },
+  });
+
+  await memberCommand.execute(removeQrInteraction, context);
+  assert.match(removeQrInteraction.replies[0].content, /Đã xóa QR/);
+  assert.equal((await context.services.profileService.getProfile(guild.id, 'member-1')).bank_qr_url, null);
+
+  await context.db.close();
+});
+
+test('profile view-member shows QR to admins', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'ViewedMember',
+    gameId: 'game-viewed-member',
+    monPhai: 'Long Ngâm',
+  });
+  await context.services.profileService.setBankQr({
+    guildId: guild.id,
+    userId: 'member-1',
+    attachment: { url: 'https://cdn.example/view-qr.png', contentType: 'image/png', size: 1024 },
+  });
+
+  const viewInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'view-other',
+      member: { id: 'member-1' },
+    },
+  });
+
+  await memberCommand.execute(viewInteraction, context);
+  assert.match(viewInteraction.replies[0].content, /ViewedMember/);
+  assert.match(viewInteraction.replies[0].content, /game-viewed-member/);
+  assert.match(viewInteraction.replies[0].content, /view-qr\.png/);
 
   await context.db.close();
 });
@@ -791,6 +950,7 @@ test('profile export-members returns a JSON attachment', async () => {
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'ExportProfile',
+    gameId: 'gid-ExportProfile',
     monPhai: 'Huyết Hà',
   });
 
@@ -799,11 +959,11 @@ test('profile export-members returns a JSON attachment', async () => {
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'export-members',
+      subcommand: 'export',
     },
   });
 
-  await profileCommand.execute(exportInteraction, context);
+  await memberCommand.execute(exportInteraction, context);
   assert.match(exportInteraction.replies[0].content, /Đang export 1 member profile/);
   assert.equal(exportInteraction.replies[0].files.length, 1);
 
@@ -819,11 +979,11 @@ test('non-admin cannot use profile admin subcommands', async () => {
     member: createMember(),
     userId: 'member-1',
     options: {
-      subcommand: 'export-members',
+      subcommand: 'export',
     },
   });
 
-  await profileCommand.execute(interaction, context);
+  await memberCommand.execute(interaction, context);
   assert.match(interaction.replies[0].content, /không có quyền quản trị bot/);
 
   await context.db.close();
@@ -840,12 +1000,50 @@ test('profile export-attendance reports when no target vote exists', async () =>
     member: createMember({ roleIds: ['admin-role'] }),
     userId: 'admin-user',
     options: {
-      subcommand: 'export-attendance',
+      subcommand: 'export',
     },
   });
 
-  await profileCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
   assert.match(interaction.replies[0].content, /Không tìm thấy vote mục tiêu/);
+
+  await context.db.close();
+});
+
+test('help command returns permission-aware overview and legacy mapping', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role'), 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+
+  const memberHelp = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    options: {},
+  });
+  await helpCommand.execute(memberHelp, context);
+  assert.match(memberHelp.replies[0].content, /\/vote view/);
+  assert.doesNotMatch(memberHelp.replies[0].content, /\/vote create/);
+  assert.equal(memberHelp.replies[0].ephemeral, true);
+
+  const adminHelp = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    options: {},
+  });
+  await helpCommand.execute(adminHelp, context);
+  assert.match(adminHelp.replies[0].content, /\/vote create/);
+  assert.match(adminHelp.replies[0].content, /\[Admin\]/);
+
+  const legacyHelp = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    options: { topic: 'legacy' },
+  });
+  await helpCommand.execute(legacyHelp, context);
+  assert.match(legacyHelp.replies[0].content, /\/vote-tao.*\/vote create/);
+  assert.match(legacyHelp.replies[0].content, /\/profile.*\/member/);
 
   await context.db.close();
 });
@@ -897,11 +1095,11 @@ test('details button shows join detail first and does not edit the public messag
   const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
 
   await context.services.settingsService.setMemberRole(guild.id, 'member-role');
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-1', ingameName: 'Aki', monPhai: 'Tố Vấn' });
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Binh', monPhai: 'Tố Vấn' });
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-3', ingameName: 'Cuong', monPhai: 'Thiết Y' });
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-4', ingameName: 'Dung', monPhai: 'Long Ngâm' });
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-5', ingameName: 'Hieu', monPhai: 'Huyết Hà' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-1', ingameName: 'Aki', gameId: 'gid-Aki', monPhai: 'Tố Vấn' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Binh', gameId: 'gid-Binh', monPhai: 'Tố Vấn' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-3', ingameName: 'Cuong', gameId: 'gid-Cuong', monPhai: 'Thiết Y' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-4', ingameName: 'Dung', gameId: 'gid-Dung', monPhai: 'Long Ngâm' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-5', ingameName: 'Hieu', gameId: 'gid-Hieu', monPhai: 'Huyết Hà' });
 
   const vote = await context.services.voteService.createVote({
     guildId: guild.id,
@@ -956,7 +1154,7 @@ test('details button allows viewing a closed vote and does not require profile',
   const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
 
   await context.services.settingsService.setMemberRole(guild.id, 'member-role');
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Joiner', monPhai: 'Tố Vấn' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Joiner', gameId: 'gid-Joiner', monPhai: 'Tố Vấn' });
 
   const vote = await context.services.voteService.createVote({
     guildId: guild.id,
@@ -1026,6 +1224,7 @@ test('join detail pages keep one sect per page and cap each page at 25 members',
       guildId: guild.id,
       userId: `to-van-${index}`,
       ingameName: `ToVan${String(index).padStart(2, '0')}`,
+      gameId: `gid-tovan-${index}`,
       monPhai: 'Tố Vấn',
     });
   }
@@ -1035,6 +1234,7 @@ test('join detail pages keep one sect per page and cap each page at 25 members',
       guildId: guild.id,
       userId: `thiet-y-${index}`,
       ingameName: `ThietY${String(index).padStart(2, '0')}`,
+      gameId: `gid-thiety-${index}`,
       monPhai: 'Thiết Y',
     });
   }
@@ -1101,10 +1301,11 @@ test('join detail pages split a sect larger than 25 into consecutive pages', asy
       guildId: guild.id,
       userId: `toai-mong-${index}`,
       ingameName: `ToaiMong${String(index).padStart(2, '0')}`,
+      gameId: `gid-toaimong-${index}`,
       monPhai: 'Toái Mộng',
     });
   }
-  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'huyet-ha-1', ingameName: 'HuyetHa01', monPhai: 'Huyết Hà' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'huyet-ha-1', ingameName: 'HuyetHa01', gameId: 'gid-HuyetHa01', monPhai: 'Huyết Hà' });
 
   const vote = await context.services.voteService.createVote({
     guildId: guild.id,
@@ -1175,6 +1376,7 @@ test('detail select menu switches to reserve and absent lists with 25 members pe
       guildId: guild.id,
       userId: `reserve-${index}`,
       ingameName: `Reserve${String(index).padStart(2, '0')}`,
+      gameId: `gid-reserve-${index}`,
       monPhai: 'Thiết Y',
     });
   }
@@ -1183,6 +1385,7 @@ test('detail select menu switches to reserve and absent lists with 25 members pe
       guildId: guild.id,
       userId: `absent-${index}`,
       ingameName: `Absent${String(index).padStart(2, '0')}`,
+      gameId: `gid-absent-${index}`,
       monPhai: 'Huyết Hà',
     });
   }
@@ -1295,6 +1498,7 @@ test('details view prefers current profile over snapshot fallback', async () => 
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'TenCu',
+    gameId: 'gid-TenCu',
     monPhai: 'Tố Vấn',
   });
 
@@ -1312,6 +1516,7 @@ test('details view prefers current profile over snapshot fallback', async () => 
     guildId: guild.id,
     userId: 'member-1',
     ingameName: 'TenMoi',
+    gameId: 'gid-TenMoi',
     monPhai: 'Thiết Y',
   });
 

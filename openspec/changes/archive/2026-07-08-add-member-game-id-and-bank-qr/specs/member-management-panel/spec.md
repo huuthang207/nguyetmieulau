@@ -1,22 +1,16 @@
-# Capability: member-management-panel
-
-## Purpose
-
-Định nghĩa member management panel trong kênh member chung, bao gồm cách admin post panel bằng `/member panel`, menu xem/cập nhật profile, hướng dẫn QR ngân hàng, luồng chọn `mon_phai` rồi nhập `ingame_name` và `game_id`, và quyền sử dụng panel.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Admin can post a member management panel
-Hệ thống SHALL cho phép admin post một member management panel vào channel hiện tại bằng slash command `/member panel`, và panel SHALL chứa select menu để member chọn chức năng quản lý hồ sơ và QR ngân hàng.
+Hệ thống SHALL cho phép admin post một member management panel vào channel hiện tại bằng slash command, và panel SHALL chứa select menu để member chọn chức năng quản lý hồ sơ và QR ngân hàng.
 
 #### Scenario: Admin posts panel successfully
-- **WHEN** user có quyền `Administrator` hoặc có `admin role` dùng `/member panel` trong một guild
+- **WHEN** user có quyền `Administrator` hoặc có `admin role` dùng command post member panel trong một guild
 - **THEN** hệ thống SHALL gửi một public panel message vào channel hiện tại
 - **AND** panel SHALL có select menu với lựa chọn `Cập nhật hồ sơ`, `Cập nhật QR ngân hàng`, và `Xem hồ sơ hiện tại`
 - **AND** phản hồi command SHALL xác nhận panel đã được tạo
 
 #### Scenario: Unauthorized user attempts to post panel
-- **WHEN** user không có quyền `Administrator` và không có `admin role` dùng `/member panel`
+- **WHEN** user không có quyền `Administrator` và không có `admin role` dùng command post member panel
 - **THEN** hệ thống SHALL không gửi panel message
 - **AND** phản hồi SHALL cho biết user không có quyền quản trị bot
 
@@ -43,7 +37,7 @@ Hệ thống SHALL cho phép member cập nhật hồ sơ qua flow panel gồm h
 
 #### Scenario: Member starts profile update with existing profile
 - **WHEN** user có `member role` hoặc quyền admin chọn `Cập nhật hồ sơ` trên member management panel và đã có profile trong guild hiện tại
-- **THEN** hệ thống SHALL trả về ephemeral message hiển thị `ingame_name`, `game_id`, `mon_phai`, và trạng thái/ảnh QR ngân hàng hiện tại
+- **THEN** hệ thống SHALL trả về ephemeral message hiển thị `ingame_name`, `game_id`, và `mon_phai` hiện tại
 - **AND** message SHALL kèm select menu chọn `mon_phai` mới từ danh sách cố định
 
 #### Scenario: Member starts profile update without existing profile
@@ -77,14 +71,15 @@ Hệ thống SHALL cho phép member cập nhật hồ sơ qua flow panel gồm h
 - **THEN** hệ thống SHALL từ chối lưu profile
 - **AND** phản hồi SHALL là ephemeral cho biết môn phái không hợp lệ và yêu cầu user thử lại từ panel
 
+## ADDED Requirements
+
 ### Requirement: Members can start bank QR update guidance from the panel
-Hệ thống SHALL cho phép member chọn chức năng cập nhật QR ngân hàng từ member management panel và nhận hướng dẫn upload ảnh QR bằng slash command attachment `/member set-qr` hoặc xóa bằng `/member remove-qr`.
+Hệ thống SHALL cho phép member chọn chức năng cập nhật QR ngân hàng từ member management panel và nhận hướng dẫn upload ảnh QR bằng slash command attachment.
 
 #### Scenario: Member chooses bank QR update from panel
-- **WHEN** user có `member role` hoặc quyền admin chọn `Cập nhật QR ngân hàng` trên member management panel và đã có profile trong guild hiện tại
-- **THEN** hệ thống SHALL trả về ephemeral message hướng dẫn user dùng `/member set-qr file:<ảnh>` để upload hoặc thay QR ngân hàng
-- **AND** phản hồi SHALL nhắc user có thể dùng `/member remove-qr` để xóa QR nếu đã upload
-- **AND** phản hồi SHALL hiển thị trạng thái hoặc URL QR hiện tại của user
+- **WHEN** user có `member role` hoặc quyền admin chọn `Cập nhật QR ngân hàng` trên member management panel
+- **THEN** hệ thống SHALL trả về ephemeral message hướng dẫn user dùng `/profile set-qr file:<ảnh>` để upload hoặc thay QR ngân hàng
+- **AND** phản hồi SHALL nhắc user có thể dùng `/profile remove-qr` để xóa QR nếu đã upload
 
 #### Scenario: Member chooses bank QR update before creating profile
 - **WHEN** user có `member role` hoặc quyền admin chọn `Cập nhật QR ngân hàng` trên member management panel nhưng chưa có profile trong guild hiện tại

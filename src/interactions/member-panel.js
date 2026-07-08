@@ -5,8 +5,10 @@ const {
   MEMBER_PROFILE_MON_PHAI_SELECT_ID,
   MEMBER_PROFILE_MODAL_PREFIX,
   MEMBER_PROFILE_INGAME_NAME_INPUT_ID,
+  MEMBER_PROFILE_GAME_ID_INPUT_ID,
   buildProfileUpdatePrompt,
   buildProfileModal,
+  buildBankQrGuidanceContent,
   buildProfileSavedContent,
 } = require('../services/member-panel-service');
 const { buildProfileContent, buildMissingProfileContent } = require('../services/profile-view-service');
@@ -14,8 +16,13 @@ const { buildProfileContent, buildMissingProfileContent } = require('../services
 function parseMemberPanelSelect(interaction) {
   if (interaction.customId === MEMBER_PANEL_MENU_ID) {
     const value = interaction.values?.[0];
-    if (value === 'member-profile:view' || value === 'member-profile:update') {
-      return { action: value === 'member-profile:view' ? 'view-profile' : 'update-profile' };
+    if (value === 'member-profile:view' || value === 'member-profile:update' || value === 'member-profile:update-bank-qr') {
+      const actions = {
+        'member-profile:view': 'view-profile',
+        'member-profile:update': 'update-profile',
+        'member-profile:update-bank-qr': 'update-bank-qr',
+      };
+      return { action: actions[value] };
     }
   }
 
@@ -58,7 +65,7 @@ async function ensureCanUseMemberPanel(interaction, context) {
 async function handleViewProfile(interaction, context) {
   const profile = await context.services.profileService.getProfile(interaction.guildId, interaction.user.id);
   await interaction.reply({
-    content: profile ? buildProfileContent(profile) : buildMissingProfileContent(),
+    content: profile ? buildProfileContent(profile, { includeBankQr: true }) : buildMissingProfileContent(),
     ephemeral: true,
   });
   return true;
@@ -67,6 +74,15 @@ async function handleViewProfile(interaction, context) {
 async function handleStartProfileUpdate(interaction, context) {
   const profile = await context.services.profileService.getProfile(interaction.guildId, interaction.user.id);
   await interaction.reply(buildProfileUpdatePrompt(profile));
+  return true;
+}
+
+async function handleBankQrGuidance(interaction, context) {
+  const profile = await context.services.profileService.getProfile(interaction.guildId, interaction.user.id);
+  await interaction.reply({
+    content: buildBankQrGuidanceContent(profile),
+    ephemeral: true,
+  });
   return true;
 }
 
@@ -103,6 +119,10 @@ async function handleMemberPanelSelect(interaction, context) {
     return handleStartProfileUpdate(interaction, context);
   }
 
+  if (payload.action === 'update-bank-qr') {
+    return handleBankQrGuidance(interaction, context);
+  }
+
   if (payload.action === 'select-mon-phai') {
     return handleMonPhaiSelect(interaction, context, payload);
   }
@@ -133,6 +153,7 @@ async function handleMemberProfileModal(interaction, context) {
     guildId: interaction.guildId,
     userId: interaction.user.id,
     ingameName: interaction.fields.getTextInputValue(MEMBER_PROFILE_INGAME_NAME_INPUT_ID),
+    gameId: interaction.fields.getTextInputValue(MEMBER_PROFILE_GAME_ID_INPUT_ID),
     monPhai,
   });
 

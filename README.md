@@ -128,39 +128,116 @@ npm test
 
 ## Slash Commands
 
+### Trợ giúp
+
+```text
+/help
+/help topic:vote
+/help topic:member
+/help topic:config
+/help topic:admin
+/help topic:legacy
+```
+
 ### Cấu hình
 
 ```text
-/vote-config channel
-/vote-config member-role
-/vote-config admin-role
+/config channel
+/config member-role
+/config admin-role
 ```
 
-### Vận hành
+### Vote điểm danh
 
 ```text
-/vote-tao
-/vote-dong
-/vote-xem
-/vote-lich-su
+/vote create
+/vote close
+/vote view
+/vote history
+/vote export
+```
+
+### Thành viên
+
+```text
+/member panel
+/member view
+/member set-qr
+/member remove-qr
+/member view-other
+/member set-other
+/member import
+/member export
+```
+
+### Mapping lệnh cũ sang lệnh mới
+
+```text
+/vote-tao                  -> /vote create
+/vote-dong                 -> /vote close
+/vote-xem                  -> /vote view
+/vote-lich-su              -> /vote history
+/profile export-attendance -> /vote export
+
+/vote-config channel       -> /config channel
+/vote-config member-role   -> /config member-role
+/vote-config admin-role    -> /config admin-role
+
+/member-panel post         -> /member panel
+/profile set-qr            -> /member set-qr
+/profile remove-qr         -> /member remove-qr
+/profile view-member       -> /member view-other
+/profile set-member        -> /member set-other
+/profile import-members    -> /member import
+/profile export-members    -> /member export
 ```
 
 ## Luồng sử dụng cơ bản
 
-### 1. Cấu hình bot
-
-Thiết lập lần lượt:
-
-- `/vote-config admin-role`
-- `/vote-config member-role`
-- `/vote-config channel`
-
-### 2. Tạo vote mới
+### 1. Xem hướng dẫn lệnh
 
 Dùng:
 
 ```text
-/vote-tao
+/help
+```
+
+Nếu cần xem mapping lệnh cũ sang lệnh mới:
+
+```text
+/help topic:legacy
+```
+
+### 2. Cấu hình bot
+
+Thiết lập lần lượt:
+
+- `/config admin-role`
+- `/config member-role`
+- `/config channel`
+
+### 3. Đăng member panel
+
+Admin dùng:
+
+```text
+/member panel
+```
+
+Member dùng panel để cập nhật hồ sơ trước khi vote. Member cũng có thể dùng:
+
+```text
+/member view
+/member set-qr
+/member remove-qr
+```
+
+### 4. Tạo vote mới
+
+Admin dùng:
+
+```text
+/vote create
 ```
 
 Nhập các trường:
@@ -176,7 +253,7 @@ Bot sẽ gửi một **Embed công khai** vào channel điểm danh với 3 butt
 - `Dự Bị`
 - `Không Tham Gia`
 
-### 3. Member vote
+### 5. Member vote
 
 Member có role hợp lệ bấm một trong ba button. Bot sẽ:
 
@@ -184,12 +261,12 @@ Member có role hợp lệ bấm một trong ba button. Bot sẽ:
 - cập nhật lại Embed tổng hợp
 - trả phản hồi **ephemeral**
 
-### 4. Đóng vote
+### 6. Đóng vote
 
 Admin dùng:
 
 ```text
-/vote-dong
+/vote close
 ```
 
 Bot sẽ:
@@ -198,20 +275,27 @@ Bot sẽ:
 - cập nhật lại Embed
 - disable toàn bộ button
 
-### 5. Xem vote và lịch sử
+### 7. Xem vote và lịch sử
 
 Xem vote hiện tại hoặc vote theo ID:
 
 ```text
-/vote-xem
-/vote-xem vote_id:<id>
+/vote view
+/vote view vote_id:<id>
 ```
 
 Xem lịch sử vote gần đây:
 
 ```text
-/vote-lich-su
-/vote-lich-su limit:5
+/vote history
+/vote history limit:5
+```
+
+Export attendance:
+
+```text
+/vote export
+/vote export vote_id:<id>
 ```
 
 ## Quyền truy cập
@@ -358,17 +442,20 @@ test/
 
 ## Test thủ công gợi ý
 
-- User thường thử `/vote-config` → phải bị từ chối
-- Admin cấu hình đủ 3 mục → phải thành công
-- Tạo vote mới với `ping_member = false`
-- Tạo vote mới với `ping_member = true`
+- User thường thử `/config channel` → phải bị từ chối
+- Admin cấu hình đủ 3 mục bằng `/config` → phải thành công
+- Admin đăng panel bằng `/member panel`
+- Member xem profile bằng `/member view`
+- Tạo vote mới bằng `/vote create` với `ping_member = false`
+- Tạo vote mới bằng `/vote create` với `ping_member = true`
 - Member vote lần đầu → count tăng đúng
 - Member đổi lựa chọn → count cập nhật đúng
 - User không có role member bấm nút → bị từ chối
 - Tạo vote thứ hai khi đang có vote `open` → bị chặn
-- Đóng vote → button bị disable
-- Xem lịch sử bằng `/vote-lich-su`
-- Xem vote cũ bằng `/vote-xem vote_id:<id>`
+- Đóng vote bằng `/vote close` → button bị disable
+- Xem lịch sử bằng `/vote history`
+- Xem vote cũ bằng `/vote view vote_id:<id>`
+- Xem danh sách lệnh bằng `/help` và mapping cũ bằng `/help topic:legacy`
 
 ## Lưu ý
 

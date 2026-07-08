@@ -13,6 +13,7 @@ const MEMBER_PANEL_MENU_ID = 'member-panel:menu';
 const MEMBER_PROFILE_MON_PHAI_SELECT_ID = 'member-profile:mon-phai-select';
 const MEMBER_PROFILE_MODAL_PREFIX = 'member-profile:update-modal:';
 const MEMBER_PROFILE_INGAME_NAME_INPUT_ID = 'member-profile:ingame-name';
+const MEMBER_PROFILE_GAME_ID_INPUT_ID = 'member-profile:game-id';
 
 function buildMemberPanelPayload() {
   const embed = new EmbedBuilder()
@@ -30,8 +31,14 @@ function buildMemberPanelPayload() {
       {
         label: 'Cập nhật hồ sơ',
         value: 'member-profile:update',
-        description: 'Cập nhật tên nhân vật và môn phái của bạn',
+        description: 'Cập nhật tên nhân vật, Game ID và môn phái',
         emoji: '📝',
+      },
+      {
+        label: 'Cập nhật QR ngân hàng',
+        value: 'member-profile:update-bank-qr',
+        description: 'Xem hướng dẫn upload hoặc xóa QR ngân hàng',
+        emoji: '🏦',
       },
       {
         label: 'Xem hồ sơ hiện tại',
@@ -71,7 +78,7 @@ function buildMonPhaiSelect(profile) {
 function buildProfileUpdatePrompt(profile) {
   const title = profile ? 'Hồ sơ hiện tại của bạn' : 'Bạn chưa có hồ sơ';
   const currentProfileText = profile
-    ? buildProfileContent(profile)
+    ? buildProfileContent(profile, { includeBankQr: true })
     : buildMissingProfileContent();
 
   return {
@@ -87,25 +94,52 @@ function buildProfileUpdatePrompt(profile) {
 }
 
 function buildProfileModal(monPhaiKey, profile) {
-  const input = new TextInputBuilder()
+  const ingameNameInput = new TextInputBuilder()
     .setCustomId(MEMBER_PROFILE_INGAME_NAME_INPUT_ID)
     .setLabel('Tên nhân vật ingame')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(100);
 
+  const gameIdInput = new TextInputBuilder()
+    .setCustomId(MEMBER_PROFILE_GAME_ID_INPUT_ID)
+    .setLabel('Game ID')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(100);
+
   if (profile?.ingame_name) {
-    input.setValue(profile.ingame_name);
+    ingameNameInput.setValue(profile.ingame_name);
+  }
+
+  if (profile?.game_id) {
+    gameIdInput.setValue(profile.game_id);
   }
 
   return new ModalBuilder()
     .setCustomId(`${MEMBER_PROFILE_MODAL_PREFIX}${monPhaiKey}`)
     .setTitle('Cập nhật hồ sơ nhân vật')
-    .addComponents(new ActionRowBuilder().addComponents(input));
+    .addComponents(
+      new ActionRowBuilder().addComponents(ingameNameInput),
+      new ActionRowBuilder().addComponents(gameIdInput),
+    );
+}
+
+function buildBankQrGuidanceContent(profile) {
+  if (!profile) {
+    return 'Bạn cần chọn `Cập nhật hồ sơ` để tạo hồ sơ trước khi upload QR ngân hàng.';
+  }
+
+  return [
+    'Dùng `/member set-qr file:<ảnh>` để upload hoặc thay QR ngân hàng của bạn.',
+    'Dùng `/member remove-qr` để xóa QR đã upload.',
+    '',
+    profile.bank_qr_url ? `QR hiện tại: ${profile.bank_qr_url}` : 'QR hiện tại: Chưa upload',
+  ].join('\n');
 }
 
 function buildProfileSavedContent(profile) {
-  return `Đã lưu profile của bạn.\n${buildProfileContent(profile)}`;
+  return `Đã lưu profile của bạn.\n${buildProfileContent(profile, { includeBankQr: true })}`;
 }
 
 function buildMonPhaiLabel(monPhai) {
@@ -117,9 +151,11 @@ module.exports = {
   MEMBER_PROFILE_MON_PHAI_SELECT_ID,
   MEMBER_PROFILE_MODAL_PREFIX,
   MEMBER_PROFILE_INGAME_NAME_INPUT_ID,
+  MEMBER_PROFILE_GAME_ID_INPUT_ID,
   buildMemberPanelPayload,
   buildProfileUpdatePrompt,
   buildProfileModal,
+  buildBankQrGuidanceContent,
   buildProfileSavedContent,
   buildMonPhaiLabel,
 };

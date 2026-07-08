@@ -68,6 +68,15 @@ const SQLITE_MIGRATIONS = [
       'ALTER TABLE vote_responses ADD COLUMN snapshot_mon_phai TEXT',
     ],
   },
+  {
+    id: '003-member-game-id-and-bank-qr',
+    statements: [
+      'ALTER TABLE member_profiles ADD COLUMN game_id TEXT',
+      'ALTER TABLE member_profiles ADD COLUMN bank_qr_url TEXT',
+      "UPDATE member_profiles SET game_id = 'legacy-' || user_id WHERE game_id IS NULL OR TRIM(game_id) = ''",
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_member_profiles_guild_game_id ON member_profiles(guild_id, game_id)',
+    ],
+  },
 ];
 
 const MYSQL_MIGRATIONS = [
@@ -138,6 +147,16 @@ const MYSQL_MIGRATIONS = [
       `,
       'ALTER TABLE vote_responses ADD COLUMN snapshot_ingame_name VARCHAR(191) NULL',
       'ALTER TABLE vote_responses ADD COLUMN snapshot_mon_phai VARCHAR(191) NULL',
+    ],
+  },
+  {
+    id: '003-member-game-id-and-bank-qr',
+    statements: [
+      'ALTER TABLE member_profiles ADD COLUMN game_id VARCHAR(191) NULL',
+      'ALTER TABLE member_profiles ADD COLUMN bank_qr_url TEXT NULL',
+      "UPDATE member_profiles SET game_id = CONCAT('legacy-', user_id) WHERE game_id IS NULL OR TRIM(game_id) = ''",
+      'ALTER TABLE member_profiles MODIFY game_id VARCHAR(191) NOT NULL',
+      'CREATE UNIQUE INDEX idx_member_profiles_guild_game_id ON member_profiles(guild_id, game_id)',
     ],
   },
 ];

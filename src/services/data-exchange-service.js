@@ -9,6 +9,7 @@ function createDataExchangeService({ profileService, voteService }) {
       items: (await profileService.listProfiles(guildId)).map((profile) => ({
         discord_user_id: profile.user_id,
         ingame_name: profile.ingame_name,
+        game_id: profile.game_id,
         mon_phai: profile.mon_phai,
       })),
     };

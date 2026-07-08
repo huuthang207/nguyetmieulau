@@ -2,8 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { commands, commandMap } = require('../src/commands');
 const { buildVoteMessagePayload, buildHistoryEmbed } = require('../src/services/vote-embed-service');
-const profileCommand = require('../src/commands/profile');
-const memberPanelCommand = require('../src/commands/member-panel');
+const configCommand = require('../src/commands/config');
+const helpCommand = require('../src/commands/help');
+const memberCommand = require('../src/commands/member');
+const voteCommand = require('../src/commands/vote');
 
 function createVote(status = 'open') {
   return {
@@ -16,30 +18,37 @@ function createVote(status = 'open') {
   };
 }
 
-test('command registry exposes all slash commands', () => {
-  assert.equal(commands.length, 7);
-  assert.ok(commandMap.has('vote-config'));
-  assert.ok(commandMap.has('vote-tao'));
-  assert.ok(commandMap.has('vote-dong'));
-  assert.ok(commandMap.has('vote-xem'));
-  assert.ok(commandMap.has('vote-lich-su'));
-  assert.ok(commandMap.has('profile'));
-  assert.ok(commandMap.has('member-panel'));
-  assert.equal(profileCommand.data.name, 'profile');
-  assert.equal(memberPanelCommand.data.name, 'member-panel');
+function subcommandNames(command) {
+  return command.data.options.map((option) => option.name);
+}
+
+test('command registry exposes grouped slash commands only', () => {
+  assert.equal(commands.length, 4);
+  assert.deepEqual([...commandMap.keys()], ['help', 'config', 'vote', 'member']);
+  assert.equal(helpCommand.data.name, 'help');
+  assert.equal(configCommand.data.name, 'config');
+  assert.equal(voteCommand.data.name, 'vote');
+  assert.equal(memberCommand.data.name, 'member');
+
+  for (const oldCommand of ['vote-config', 'vote-tao', 'vote-dong', 'vote-xem', 'vote-lich-su', 'profile', 'member-panel']) {
+    assert.equal(commandMap.has(oldCommand), false);
+  }
 });
 
-test('profile command no longer exposes self-service subcommands', () => {
-  const subcommandNames = profileCommand.data.options.map((option) => option.name);
-
-  assert.deepEqual(subcommandNames, [
-    'set-member',
-    'import-members',
-    'export-members',
-    'export-attendance',
+test('grouped command definitions expose expected subcommands', () => {
+  assert.deepEqual(subcommandNames(configCommand), ['channel', 'member-role', 'admin-role']);
+  assert.deepEqual(subcommandNames(voteCommand), ['create', 'close', 'view', 'history', 'export']);
+  assert.deepEqual(subcommandNames(memberCommand), [
+    'panel',
+    'view',
+    'set-qr',
+    'remove-qr',
+    'view-other',
+    'set-other',
+    'import',
+    'export',
   ]);
-  assert.equal(subcommandNames.includes('set'), false);
-  assert.equal(subcommandNames.includes('xem'), false);
+  assert.equal(helpCommand.data.options[0].name, 'topic');
 });
 
 test('vote message payload includes details button and keeps it enabled when vote is closed', () => {

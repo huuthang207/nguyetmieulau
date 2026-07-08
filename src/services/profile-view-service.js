@@ -1,10 +1,17 @@
 const { formatMonPhaiWithEmoji } = require('../constants/mon-phai');
 
-function buildProfileContent(profile) {
-  return [
+function buildProfileContent(profile, { includeBankQr = false } = {}) {
+  const lines = [
     `Ingame name: **${profile.ingame_name}**`,
+    `Game ID: **${profile.game_id}**`,
     `Môn phái: **${formatMonPhaiWithEmoji(profile.mon_phai)}**`,
-  ].join('\n');
+  ];
+
+  if (includeBankQr) {
+    lines.push(profile.bank_qr_url ? `QR ngân hàng: ${profile.bank_qr_url}` : 'QR ngân hàng: Chưa upload');
+  }
+
+  return lines.join('\n');
 }
 
 function buildMissingProfileContent() {

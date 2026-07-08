@@ -1,10 +1,4 @@
-# Capability: attendance-vote-configuration
-
-## Purpose
-
-Định nghĩa cấu hình theo từng guild cho bot điểm danh Bang Chiến, bao gồm `attendance channel`, `member role`, `admin role`, và các quy tắc kiểm tra cấu hình trước khi vận hành vote.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Guild configuration for attendance voting
 Hệ thống SHALL cho phép cấu hình theo từng guild cho `attendance channel`, `member role`, và `admin role` thông qua slash command `/config` với các subcommand tương ứng.

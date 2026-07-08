@@ -1,14 +1,24 @@
 const { nowIso } = require('../utils/time');
 const { isValidMonPhai } = require('../constants/mon-phai');
 
+const BANK_QR_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+
 function createProfileService(repositories) {
-  async function validateProfileInput({ guildId, userId, ingameName, monPhai }) {
+  async function validateProfileInput({ guildId, userId, ingameName, gameId, monPhai }) {
     const trimmedIngameName = ingameName?.trim();
+    const trimmedGameId = gameId?.trim();
 
     if (!trimmedIngameName) {
       return {
         ok: false,
         message: '`ingame_name` không được để trống.',
+      };
+    }
+
+    if (!trimmedGameId) {
+      return {
+        ok: false,
+        message: '`game_id` không được để trống.',
       };
     }
 
@@ -27,15 +37,24 @@ function createProfileService(repositories) {
       };
     }
 
+    const existingByGameId = await repositories.findMemberProfileByGameId(guildId, trimmedGameId);
+    if (existingByGameId && existingByGameId.user_id !== userId) {
+      return {
+        ok: false,
+        message: '`game_id` đã tồn tại trong guild này.',
+      };
+    }
+
     return {
       ok: true,
       ingameName: trimmedIngameName,
+      gameId: trimmedGameId,
       monPhai,
     };
   }
 
-  async function saveProfile({ guildId, userId, ingameName, monPhai }) {
-    const validation = await validateProfileInput({ guildId, userId, ingameName, monPhai });
+  async function saveProfile({ guildId, userId, ingameName, gameId, monPhai }) {
+    const validation = await validateProfileInput({ guildId, userId, ingameName, gameId, monPhai });
     if (!validation.ok) {
       return validation;
     }
@@ -44,6 +63,7 @@ function createProfileService(repositories) {
       guildId,
       userId,
       validation.ingameName,
+      validation.gameId,
       validation.monPhai,
       nowIso(),
     );
@@ -60,6 +80,70 @@ function createProfileService(repositories) {
 
   async function listProfiles(guildId) {
     return repositories.listMemberProfiles(guildId);
+  }
+
+  function validateBankQrAttachment(attachment) {
+    if (!attachment?.url) {
+      return {
+        ok: false,
+        message: 'Bạn cần đính kèm ảnh QR ngân hàng hợp lệ.',
+      };
+    }
+
+    const contentType = attachment.contentType || attachment.content_type || '';
+    if (!contentType.startsWith('image/')) {
+      return {
+        ok: false,
+        message: 'File QR phải là ảnh hợp lệ.',
+      };
+    }
+
+    if (attachment.size && attachment.size > BANK_QR_MAX_SIZE_BYTES) {
+      return {
+        ok: false,
+        message: 'Ảnh QR không được vượt quá 5MB.',
+      };
+    }
+
+    return {
+      ok: true,
+      url: attachment.url,
+    };
+  }
+
+  async function setBankQr({ guildId, userId, attachment }) {
+    const profile = await getProfile(guildId, userId);
+    if (!profile) {
+      return {
+        ok: false,
+        message: 'Bạn cần cập nhật hồ sơ trên member management panel trước khi upload QR ngân hàng.',
+      };
+    }
+
+    const validation = validateBankQrAttachment(attachment);
+    if (!validation.ok) {
+      return validation;
+    }
+
+    return {
+      ok: true,
+      profile: await repositories.setMemberProfileBankQr(guildId, userId, validation.url, nowIso()),
+    };
+  }
+
+  async function removeBankQr({ guildId, userId }) {
+    const profile = await getProfile(guildId, userId);
+    if (!profile) {
+      return {
+        ok: false,
+        message: 'Bạn cần cập nhật hồ sơ trên member management panel trước khi xóa QR ngân hàng.',
+      };
+    }
+
+    return {
+      ok: true,
+      profile: await repositories.removeMemberProfileBankQr(guildId, userId, nowIso()),
+    };
   }
 
   async function validateImportDataset(guildId, payload) {
@@ -92,6 +176,7 @@ function createProfileService(repositories) {
     }
 
     const seenNames = new Map();
+    const seenGameIds = new Map();
 
     for (let index = 0; index < payload.items.length; index += 1) {
       const item = payload.items[index];
@@ -104,6 +189,7 @@ function createProfileService(repositories) {
 
       const userId = String(item.discord_user_id || '').trim();
       const ingameName = String(item.ingame_name || '').trim();
+      const gameId = String(item.game_id || '').trim();
       const monPhai = item.mon_phai;
 
       if (!userId) {
@@ -117,6 +203,7 @@ function createProfileService(repositories) {
         guildId,
         userId,
         ingameName,
+        gameId,
         monPhai,
       });
 
@@ -128,15 +215,25 @@ function createProfileService(repositories) {
       }
 
       const nameKey = validation.ingameName.toLocaleLowerCase('vi-VN');
-      const previousIndex = seenNames.get(nameKey);
-      if (previousIndex) {
+      const previousNameIndex = seenNames.get(nameKey);
+      if (previousNameIndex) {
         return {
           ok: false,
-          message: `Item #${index + 1} trùng ingame_name với item #${previousIndex}.`,
+          message: `Item #${index + 1} trùng ingame_name với item #${previousNameIndex}.`,
+        };
+      }
+
+      const gameIdKey = validation.gameId.toLocaleLowerCase('vi-VN');
+      const previousGameIdIndex = seenGameIds.get(gameIdKey);
+      if (previousGameIdIndex) {
+        return {
+          ok: false,
+          message: `Item #${index + 1} trùng game_id với item #${previousGameIdIndex}.`,
         };
       }
 
       seenNames.set(nameKey, index + 1);
+      seenGameIds.set(gameIdKey, index + 1);
     }
 
     return {
@@ -144,6 +241,7 @@ function createProfileService(repositories) {
       items: payload.items.map((item) => ({
         userId: String(item.discord_user_id).trim(),
         ingameName: String(item.ingame_name).trim(),
+        gameId: String(item.game_id).trim(),
         monPhai: item.mon_phai,
       })),
     };
@@ -167,11 +265,15 @@ function createProfileService(repositories) {
     getProfile,
     listProfiles,
     saveProfile,
+    setBankQr,
+    removeBankQr,
     importProfiles,
     validateImportDataset,
+    validateBankQrAttachment,
   };
 }
 
 module.exports = {
+  BANK_QR_MAX_SIZE_BYTES,
   createProfileService,
 };

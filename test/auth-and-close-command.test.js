@@ -9,10 +9,8 @@ const { createSettingsService } = require('../src/services/settings-service');
 const { createVoteService } = require('../src/services/vote-service');
 const { createProfileService } = require('../src/services/profile-service');
 const { createDataExchangeService } = require('../src/services/data-exchange-service');
-const voteConfigCommand = require('../src/commands/vote-config');
-const voteCloseCommand = require('../src/commands/vote-dong');
-const voteViewCommand = require('../src/commands/vote-xem');
-const voteHistoryCommand = require('../src/commands/vote-lich-su');
+const configCommand = require('../src/commands/config');
+const voteCommand = require('../src/commands/vote');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-auth-test-'));
@@ -158,7 +156,7 @@ async function createContext() {
   return { db, repositories, services };
 }
 
-test('vote-config rejects unauthorized users', async () => {
+test('config rejects unauthorized users', async () => {
   const context = await createContext();
   const guild = createGuild({ channels: { 'attendance-channel': createTextChannel() } });
   const interaction = createInteraction({
@@ -170,29 +168,29 @@ test('vote-config rejects unauthorized users', async () => {
     },
   });
 
-  await voteConfigCommand.execute(interaction, context);
+  await configCommand.execute(interaction, context);
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /không có quyền quản trị bot/);
   await context.db.close();
 });
 
-test('vote-xem and vote-lich-su reject unauthorized users', async () => {
+test('vote view and vote history reject unauthorized users', async () => {
   const context = await createContext();
   const guild = createGuild();
 
-  const viewInteraction = createInteraction({ guild, member: createMember() });
-  await voteViewCommand.execute(viewInteraction, context);
+  const viewInteraction = createInteraction({ guild, member: createMember(), options: { subcommand: 'view' } });
+  await voteCommand.execute(viewInteraction, context);
   assert.match(viewInteraction.replies[0].content, /không có quyền xem dữ liệu điểm danh/);
 
-  const historyInteraction = createInteraction({ guild, member: createMember() });
-  await voteHistoryCommand.execute(historyInteraction, context);
+  const historyInteraction = createInteraction({ guild, member: createMember(), options: { subcommand: 'history' } });
+  await voteCommand.execute(historyInteraction, context);
   assert.match(historyInteraction.replies[0].content, /không có quyền xem dữ liệu điểm danh/);
 
   await context.db.close();
 });
 
-test('vote-dong disables vote buttons but keeps details button enabled for the closed vote', async () => {
+test('vote close disables vote buttons but keeps details button enabled for the closed vote', async () => {
   const context = await createContext();
   const adminRole = createRole('admin-role');
   const attendanceChannel = createTextChannel();
@@ -219,9 +217,10 @@ test('vote-dong disables vote buttons but keeps details button enabled for the c
   const interaction = createInteraction({
     guild,
     member: createMember({ roleIds: ['admin-role'] }),
+    options: { subcommand: 'close' },
   });
 
-  await voteCloseCommand.execute(interaction, context);
+  await voteCommand.execute(interaction, context);
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Đã đóng vote hiện tại/);

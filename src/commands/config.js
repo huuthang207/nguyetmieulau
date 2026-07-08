@@ -2,7 +2,7 @@ const { ChannelType, SlashCommandBuilder } = require('discord.js');
 const { isBotAdmin } = require('../utils/permissions');
 
 const data = new SlashCommandBuilder()
-  .setName('vote-config')
+  .setName('config')
   .setDescription('Cấu hình bot điểm danh Bang Chiến')
   .addSubcommand((subcommand) =>
     subcommand

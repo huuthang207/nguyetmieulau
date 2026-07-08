@@ -34,9 +34,26 @@ test('database migrations create required tables and support vote lifecycle', as
     guildId: 'guild-1',
     userId: 'member-1',
     ingameName: 'Thang207',
+    gameId: 'gid-Thang207',
     monPhai: 'Tố Vấn',
   });
   assert.equal(savedProfile.ok, true);
+  assert.equal(savedProfile.profile.game_id, 'gid-Thang207');
+
+  const qrProfile = await repositories.setMemberProfileBankQr('guild-1', 'member-1', 'https://cdn.example/qr.png', new Date().toISOString());
+  assert.equal(qrProfile.bank_qr_url, 'https://cdn.example/qr.png');
+  const removedQrProfile = await repositories.removeMemberProfileBankQr('guild-1', 'member-1', new Date().toISOString());
+  assert.equal(removedQrProfile.bank_qr_url, null);
+
+  const duplicateGameId = await profileService.saveProfile({
+    guildId: 'guild-1',
+    userId: 'member-2',
+    ingameName: 'OtherName',
+    gameId: 'gid-Thang207',
+    monPhai: 'Huyết Hà',
+  });
+  assert.equal(duplicateGameId.ok, false);
+  assert.match(duplicateGameId.message, /game_id.*đã tồn tại/);
 
   const vote = await voteService.createVote({
     guildId: 'guild-1',

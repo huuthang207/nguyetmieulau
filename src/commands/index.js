@@ -4,6 +4,7 @@ const voteCloseCommand = require('./vote-dong');
 const voteViewCommand = require('./vote-xem');
 const voteHistoryCommand = require('./vote-lich-su');
 const profileCommand = require('./profile');
+const memberPanelCommand = require('./member-panel');
 
 const commands = [
   voteConfigCommand,
@@ -12,6 +13,7 @@ const commands = [
   voteViewCommand,
   voteHistoryCommand,
   profileCommand,
+  memberPanelCommand,
 ];
 
 const commandMap = new Map(commands.map((command) => [command.data.name, command]));

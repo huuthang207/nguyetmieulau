@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { commands, commandMap } = require('../src/commands');
 const { buildVoteMessagePayload, buildHistoryEmbed } = require('../src/services/vote-embed-service');
 const profileCommand = require('../src/commands/profile');
+const memberPanelCommand = require('../src/commands/member-panel');
 
 function createVote(status = 'open') {
   return {
@@ -16,14 +17,29 @@ function createVote(status = 'open') {
 }
 
 test('command registry exposes all slash commands', () => {
-  assert.equal(commands.length, 6);
+  assert.equal(commands.length, 7);
   assert.ok(commandMap.has('vote-config'));
   assert.ok(commandMap.has('vote-tao'));
   assert.ok(commandMap.has('vote-dong'));
   assert.ok(commandMap.has('vote-xem'));
   assert.ok(commandMap.has('vote-lich-su'));
   assert.ok(commandMap.has('profile'));
+  assert.ok(commandMap.has('member-panel'));
   assert.equal(profileCommand.data.name, 'profile');
+  assert.equal(memberPanelCommand.data.name, 'member-panel');
+});
+
+test('profile command no longer exposes self-service subcommands', () => {
+  const subcommandNames = profileCommand.data.options.map((option) => option.name);
+
+  assert.deepEqual(subcommandNames, [
+    'set-member',
+    'import-members',
+    'export-members',
+    'export-attendance',
+  ]);
+  assert.equal(subcommandNames.includes('set'), false);
+  assert.equal(subcommandNames.includes('xem'), false);
 });
 
 test('vote message payload includes details button and keeps it enabled when vote is closed', () => {

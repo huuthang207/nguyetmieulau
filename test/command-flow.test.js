@@ -12,7 +12,15 @@ const { createDataExchangeService } = require('../src/services/data-exchange-ser
 const voteCreateCommand = require('../src/commands/vote-tao');
 const voteCloseCommand = require('../src/commands/vote-dong');
 const profileCommand = require('../src/commands/profile');
+const memberPanelCommand = require('../src/commands/member-panel');
 const { handleVoteButton, handleVoteDetailSelect } = require('../src/interactions/vote-buttons');
+const { handleMemberPanelSelect, handleMemberProfileModal } = require('../src/interactions/member-panel');
+const {
+  MEMBER_PANEL_MENU_ID,
+  MEMBER_PROFILE_MON_PHAI_SELECT_ID,
+  MEMBER_PROFILE_MODAL_PREFIX,
+  MEMBER_PROFILE_INGAME_NAME_INPUT_ID,
+} = require('../src/services/member-panel-service');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-command-test-'));
@@ -103,7 +111,7 @@ function createMember({ isAdministrator = false, roleIds = [] } = {}) {
   };
 }
 
-function createChatInputInteraction({ guild, member, userId = 'user-1', options = {} }) {
+function createChatInputInteraction({ guild, member, userId = 'user-1', options = {}, channel = null }) {
   const replies = [];
 
   return {
@@ -111,6 +119,7 @@ function createChatInputInteraction({ guild, member, userId = 'user-1', options 
     guild,
     member,
     user: { id: userId },
+    channel,
     replies,
     options: {
       getString(name) {
@@ -166,23 +175,51 @@ function createButtonInteraction({ guild, member, voteId, choice, message, userI
   };
 }
 
-function createSelectInteraction({ guild, member, value, userId = 'member-1' }) {
+function createSelectInteraction({ guild, member, value, userId = 'member-1', customId = null }) {
   const replies = [];
   const updates = [];
+  const modals = [];
 
   return {
     guildId: guild.id,
     guild,
     member,
     user: { id: userId },
+    customId,
     values: [value],
     replies,
     updates,
+    modals,
     async reply(payload) {
       replies.push(payload);
     },
     async update(payload) {
       updates.push(payload);
+    },
+    async showModal(modal) {
+      modals.push(modal);
+    },
+  };
+}
+
+function createModalInteraction({ guild, member, customId, ingameName, userId = 'member-1' }) {
+  const replies = [];
+
+  return {
+    guildId: guild.id,
+    guild,
+    member,
+    user: { id: userId },
+    customId,
+    replies,
+    fields: {
+      getTextInputValue(inputId) {
+        assert.equal(inputId, MEMBER_PROFILE_INGAME_NAME_INPUT_ID);
+        return ingameName;
+      },
+    },
+    async reply(payload) {
+      replies.push(payload);
     },
   };
 }
@@ -205,6 +242,197 @@ async function createContext() {
 
   return { db, repositories, services };
 }
+
+test('member-panel post sends panel message for admin and rejects unauthorized users', async () => {
+  const context = await createContext();
+  const adminRole = createRole('admin-role');
+  const memberChannel = createTextChannel('member-channel');
+  const guild = createGuild({ roles: { 'admin-role': adminRole }, channels: { 'member-channel': memberChannel } });
+
+  await context.services.settingsService.setAdminRole(guild.id, adminRole.id);
+
+  const unauthorizedInteraction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    channel: memberChannel,
+  });
+
+  await memberPanelCommand.execute(unauthorizedInteraction, context);
+  assert.match(unauthorizedInteraction.replies[0].content, /không có quyền quản trị bot/);
+  assert.equal(memberChannel.sentMessages.size, 0);
+
+  const adminInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    channel: memberChannel,
+  });
+
+  await memberPanelCommand.execute(adminInteraction, context);
+
+  assert.match(adminInteraction.replies[0].content, /Đã tạo member management panel/);
+  assert.equal(memberChannel.sentMessages.size, 1);
+  const sentMessage = memberChannel.sentMessages.get('msg-1');
+  assert.match(sentMessage.payloads[0].embeds[0].data.title, /Quản lý thông tin thành viên/);
+  const select = sentMessage.payloads[0].components[0].components[0];
+  assert.equal(select.data.custom_id, MEMBER_PANEL_MENU_ID);
+  assert.deepEqual(select.options.map((option) => option.data.value), [
+    'member-profile:update',
+    'member-profile:view',
+  ]);
+
+  await context.db.close();
+});
+
+test('member panel can view existing and missing profiles', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'Aki',
+    monPhai: 'Thiết Y',
+  });
+
+  const existingInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PANEL_MENU_ID,
+    value: 'member-profile:view',
+  });
+
+  assert.equal(await handleMemberPanelSelect(existingInteraction, context), true);
+  assert.match(existingInteraction.replies[0].content, /Aki/);
+  assert.match(existingInteraction.replies[0].content, /Thiết Y/);
+  assert.equal(existingInteraction.replies[0].ephemeral, true);
+
+  const missingInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PANEL_MENU_ID,
+    value: 'member-profile:view',
+    userId: 'member-2',
+  });
+
+  assert.equal(await handleMemberPanelSelect(missingInteraction, context), true);
+  assert.match(missingInteraction.replies[0].content, /Bạn chưa có hồ sơ/);
+  assert.match(missingInteraction.replies[0].content, /Cập nhật hồ sơ/);
+
+  await context.db.close();
+});
+
+test('member panel update flow shows current profile, opens modal, and saves profile', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'TenCu',
+    monPhai: 'Tố Vấn',
+  });
+
+  const startInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PANEL_MENU_ID,
+    value: 'member-profile:update',
+  });
+
+  assert.equal(await handleMemberPanelSelect(startInteraction, context), true);
+  assert.match(startInteraction.replies[0].content, /TenCu/);
+  assert.equal(startInteraction.replies[0].components[0].components[0].data.custom_id, MEMBER_PROFILE_MON_PHAI_SELECT_ID);
+
+  const selectMonPhaiInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PROFILE_MON_PHAI_SELECT_ID,
+    value: `${MEMBER_PROFILE_MODAL_PREFIX}long-ngam`,
+  });
+
+  assert.equal(await handleMemberPanelSelect(selectMonPhaiInteraction, context), true);
+  assert.equal(selectMonPhaiInteraction.modals.length, 1);
+  assert.equal(selectMonPhaiInteraction.modals[0].data.custom_id, `${MEMBER_PROFILE_MODAL_PREFIX}long-ngam`);
+  assert.equal(selectMonPhaiInteraction.modals[0].components[0].components[0].data.value, 'TenCu');
+
+  const modalInteraction = createModalInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: `${MEMBER_PROFILE_MODAL_PREFIX}long-ngam`,
+    ingameName: 'TenMoi',
+  });
+
+  assert.equal(await handleMemberProfileModal(modalInteraction, context), true);
+  assert.match(modalInteraction.replies[0].content, /Đã lưu profile/);
+  assert.match(modalInteraction.replies[0].content, /TenMoi/);
+  assert.match(modalInteraction.replies[0].content, /Long Ngâm/);
+
+  const profile = await context.services.profileService.getProfile(guild.id, 'member-1');
+  assert.equal(profile.ingame_name, 'TenMoi');
+  assert.equal(profile.mon_phai, 'Long Ngâm');
+
+  await context.db.close();
+});
+
+test('member panel update flow rejects invalid inputs and unauthorized users', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'TrungLap',
+    monPhai: 'Tố Vấn',
+  });
+
+  const unauthorizedInteraction = createSelectInteraction({
+    guild,
+    member: createMember(),
+    customId: MEMBER_PANEL_MENU_ID,
+    value: 'member-profile:view',
+  });
+
+  assert.equal(await handleMemberPanelSelect(unauthorizedInteraction, context), true);
+  assert.match(unauthorizedInteraction.replies[0].content, /không có quyền sử dụng panel/);
+
+  const invalidMonPhaiSelect = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: MEMBER_PROFILE_MON_PHAI_SELECT_ID,
+    value: `${MEMBER_PROFILE_MODAL_PREFIX}sai-phai`,
+    userId: 'member-2',
+  });
+
+  assert.equal(await handleMemberPanelSelect(invalidMonPhaiSelect, context), true);
+  assert.match(invalidMonPhaiSelect.replies[0].content, /Môn phái không hợp lệ/);
+
+  const invalidModal = createModalInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: `${MEMBER_PROFILE_MODAL_PREFIX}sai-phai`,
+    ingameName: 'NameMoi',
+    userId: 'member-2',
+  });
+
+  assert.equal(await handleMemberProfileModal(invalidModal, context), true);
+  assert.match(invalidModal.replies[0].content, /Môn phái không hợp lệ/);
+
+  const duplicateModal = createModalInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    customId: `${MEMBER_PROFILE_MODAL_PREFIX}thiet-y`,
+    ingameName: 'TrungLap',
+    userId: 'member-2',
+  });
+
+  assert.equal(await handleMemberProfileModal(duplicateModal, context), true);
+  assert.match(duplicateModal.replies[0].content, /đã tồn tại/);
+
+  await context.db.close();
+});
 
 test('vote-tao creates a public vote message and stores message id', async () => {
   const context = await createContext();
@@ -424,71 +652,17 @@ test('vote button blocks members who do not have a profile yet', async () => {
   const handled = await handleVoteButton(interaction, context);
 
   assert.equal(handled, true);
-  assert.match(interaction.replies[0].content, /\/profile set/);
+  assert.match(interaction.replies[0].content, /member management panel/);
   assert.equal((await context.repositories.getVoteSummary(vote.id)).joinCount, 0);
 
   await context.db.close();
 });
 
-test('profile command can save and show the current member profile', async () => {
-  const context = await createContext();
-  const guild = createGuild({ roles: {}, channels: {} });
-
-  const setInteraction = createChatInputInteraction({
-    guild,
-    member: createMember(),
-    userId: 'member-1',
-    options: {
-      subcommand: 'set',
-      ingame_name: 'Aki',
-      mon_phai: 'Thiết Y',
-    },
-  });
-
-  await profileCommand.execute(setInteraction, context);
-  assert.match(setInteraction.replies[0].content, /Đã lưu profile của bạn/);
-
-  const viewInteraction = createChatInputInteraction({
-    guild,
-    member: createMember(),
-    userId: 'member-1',
-    options: {
-      subcommand: 'xem',
-    },
-  });
-
-  await profileCommand.execute(viewInteraction, context);
-  assert.match(viewInteraction.replies[0].content, /Aki/);
-  assert.match(viewInteraction.replies[0].content, /Thiết Y/);
-
-  await context.db.close();
-});
-
-test('profile command rejects duplicate ingame_name and allows admin set-member', async () => {
+test('profile command allows admin set-member', async () => {
   const context = await createContext();
   const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
 
   await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
-  await context.services.profileService.saveProfile({
-    guildId: guild.id,
-    userId: 'member-1',
-    ingameName: 'TrungLap',
-    monPhai: 'Tố Vấn',
-  });
-
-  const duplicateInteraction = createChatInputInteraction({
-    guild,
-    member: createMember(),
-    userId: 'member-2',
-    options: {
-      subcommand: 'set',
-      ingame_name: 'TrungLap',
-      mon_phai: 'Thiết Y',
-    },
-  });
-
-  await profileCommand.execute(duplicateInteraction, context);
-  assert.match(duplicateInteraction.replies[0].content, /đã tồn tại/);
 
   const adminSetMemberInteraction = createChatInputInteraction({
     guild,
@@ -651,27 +825,6 @@ test('non-admin cannot use profile admin subcommands', async () => {
 
   await profileCommand.execute(interaction, context);
   assert.match(interaction.replies[0].content, /không có quyền quản trị bot/);
-
-  await context.db.close();
-});
-
-test('profile set rejects invalid mon phai', async () => {
-  const context = await createContext();
-  const guild = createGuild({ roles: {}, channels: {} });
-
-  const interaction = createChatInputInteraction({
-    guild,
-    member: createMember(),
-    userId: 'member-1',
-    options: {
-      subcommand: 'set',
-      ingame_name: 'BadClass',
-      mon_phai: 'Sai Môn Phái',
-    },
-  });
-
-  await profileCommand.execute(interaction, context);
-  assert.match(interaction.replies[0].content, /mon_phai/);
 
   await context.db.close();
 });

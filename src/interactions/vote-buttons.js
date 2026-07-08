@@ -178,7 +178,7 @@ async function handleVoteChoiceButton(interaction, context, payload) {
   const profile = await profileService.getProfile(interaction.guildId, interaction.user.id);
   if (!profile) {
     await interaction.reply({
-      content: 'Bạn chưa có thông tin nhân vật. Hãy dùng `/profile set` để cập nhật `ingame_name` và `mon_phai` trước khi vote.',
+      content: 'Bạn chưa có thông tin nhân vật. Hãy dùng member management panel để cập nhật `ingame_name` và `mon_phai` trước khi vote.',
       ephemeral: true,
     });
     return true;

@@ -51,7 +51,7 @@ Hệ thống SHALL cho phép user có `member role` chọn đúng một trạng 
 #### Scenario: User without profile attempts to vote
 - **WHEN** user có `member role` nhưng chưa có `member profile` hợp lệ trong guild hiện tại và bấm một button vote
 - **THEN** hệ thống SHALL không ghi nhận response
-- **AND** phản hồi SHALL là ephemeral hướng dẫn user dùng `/profile set` để cập nhật `ingame_name` và `mon_phai` trước khi vote
+- **AND** phản hồi SHALL là ephemeral hướng dẫn user dùng member management panel để cập nhật `ingame_name` và `mon_phai` trước khi vote
 
 ### Requirement: Vote summary embed reflects current counts and update time
 Hệ thống SHALL dùng Embed công khai của vote hiện tại làm bảng tổng hợp chính, và MUST hiển thị số lượng cho từng lựa chọn, tổng số phản hồi, trạng thái vote, cùng thời gian cập nhật gần nhất theo dạng absolute + relative time; ngoài ra phần `Tham Gia` MUST hiển thị breakdown theo `mon_phai` dựa trên profile hiện tại của member bằng hardcoded emoji và số lượng từng phái có ít nhất một người tham gia.

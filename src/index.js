@@ -8,6 +8,7 @@ const { createProfileService } = require('./services/profile-service');
 const { createDataExchangeService } = require('./services/data-exchange-service');
 const { commandMap } = require('./commands');
 const { handleVoteButton, handleVoteDetailSelect } = require('./interactions/vote-buttons');
+const { handleMemberPanelSelect, handleMemberProfileModal } = require('./interactions/member-panel');
 
 async function main() {
   validateRuntimeEnv();
@@ -70,7 +71,15 @@ async function main() {
       }
 
       if (interaction.isStringSelectMenu()) {
-        const handled = await handleVoteDetailSelect(interaction, context);
+        const handled = await handleMemberPanelSelect(interaction, context)
+          || await handleVoteDetailSelect(interaction, context);
+        if (handled) {
+          return;
+        }
+      }
+
+      if (interaction.isModalSubmit()) {
+        const handled = await handleMemberProfileModal(interaction, context);
         if (handled) {
           return;
         }

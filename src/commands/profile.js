@@ -1,40 +1,11 @@
 const { AttachmentBuilder, SlashCommandBuilder } = require('discord.js');
-const { MON_PHAI_CHOICES, formatMonPhaiWithEmoji } = require('../constants/mon-phai');
+const { MON_PHAI_CHOICES } = require('../constants/mon-phai');
 const { isBotAdmin } = require('../utils/permissions');
+const { buildProfileContent } = require('../services/profile-view-service');
 
 const data = new SlashCommandBuilder()
   .setName('profile')
   .setDescription('Quản lý hồ sơ ingame và dữ liệu điểm danh')
-  .addSubcommand((subcommand) => {
-    let builder = subcommand
-      .setName('set')
-      .setDescription('Tạo hoặc cập nhật profile của chính bạn')
-      .addStringOption((option) =>
-        option
-          .setName('ingame_name')
-          .setDescription('Tên nhân vật ingame')
-          .setRequired(true),
-      )
-      .addStringOption((option) => {
-        option
-          .setName('mon_phai')
-          .setDescription('Môn phái của nhân vật')
-          .setRequired(true);
-
-        for (const choice of MON_PHAI_CHOICES) {
-          option.addChoices(choice);
-        }
-
-        return option;
-      });
-
-    return builder;
-  })
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName('xem')
-      .setDescription('Xem profile hiện tại của bạn'),
-  )
   .addSubcommand((subcommand) => {
     let builder = subcommand
       .setName('set-member')
@@ -94,45 +65,10 @@ const data = new SlashCommandBuilder()
       ),
   );
 
-function buildProfileContent(profile) {
-  return [
-    `Ingame name: **${profile.ingame_name}**`,
-    `Môn phái: **${formatMonPhaiWithEmoji(profile.mon_phai)}**`,
-  ].join('\n');
-}
-
 async function execute(interaction, context) {
   const subcommand = interaction.options.getSubcommand();
   const { settingsService, profileService, dataExchangeService } = context.services;
   const settings = await settingsService.getSettings(interaction.guildId);
-
-  if (subcommand === 'set') {
-    const result = await profileService.saveProfile({
-      guildId: interaction.guildId,
-      userId: interaction.user.id,
-      ingameName: interaction.options.getString('ingame_name', true),
-      monPhai: interaction.options.getString('mon_phai', true),
-    });
-
-    await interaction.reply({
-      content: result.ok
-        ? `Đã lưu profile của bạn.\n${buildProfileContent(result.profile)}`
-        : result.message,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  if (subcommand === 'xem') {
-    const profile = await profileService.getProfile(interaction.guildId, interaction.user.id);
-    await interaction.reply({
-      content: profile
-        ? buildProfileContent(profile)
-        : 'Bạn chưa có profile. Hãy dùng `/profile set` để cập nhật thông tin nhân vật.',
-      ephemeral: true,
-    });
-    return;
-  }
 
   if (!isBotAdmin(interaction.member, settings)) {
     await interaction.reply({

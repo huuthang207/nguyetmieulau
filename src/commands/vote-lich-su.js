@@ -16,7 +16,7 @@ const data = new SlashCommandBuilder()
 
 async function execute(interaction, context) {
   const { settingsService, voteService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!canViewAttendance(interaction.member, settings)) {
     await interaction.reply({
@@ -27,7 +27,7 @@ async function execute(interaction, context) {
   }
 
   const requestedLimit = interaction.options.getInteger('limit') || HISTORY_DEFAULT_LIMIT;
-  const votes = voteService.listVoteHistory(interaction.guildId, requestedLimit);
+  const votes = await voteService.listVoteHistory(interaction.guildId, requestedLimit);
 
   if (votes.length === 0) {
     await interaction.reply({

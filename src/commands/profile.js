@@ -104,10 +104,10 @@ function buildProfileContent(profile) {
 async function execute(interaction, context) {
   const subcommand = interaction.options.getSubcommand();
   const { settingsService, profileService, dataExchangeService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (subcommand === 'set') {
-    const result = profileService.saveProfile({
+    const result = await profileService.saveProfile({
       guildId: interaction.guildId,
       userId: interaction.user.id,
       ingameName: interaction.options.getString('ingame_name', true),
@@ -124,7 +124,7 @@ async function execute(interaction, context) {
   }
 
   if (subcommand === 'xem') {
-    const profile = profileService.getProfile(interaction.guildId, interaction.user.id);
+    const profile = await profileService.getProfile(interaction.guildId, interaction.user.id);
     await interaction.reply({
       content: profile
         ? buildProfileContent(profile)
@@ -144,7 +144,7 @@ async function execute(interaction, context) {
 
   if (subcommand === 'set-member') {
     const member = interaction.options.getUser('member', true);
-    const result = profileService.saveProfile({
+    const result = await profileService.saveProfile({
       guildId: interaction.guildId,
       userId: member.id,
       ingameName: interaction.options.getString('ingame_name', true),
@@ -164,7 +164,7 @@ async function execute(interaction, context) {
     try {
       const attachment = interaction.options.getAttachment('file', true);
       const payload = await dataExchangeService.parseJsonAttachment(attachment);
-      const result = profileService.importProfiles(interaction.guildId, payload);
+      const result = await profileService.importProfiles(interaction.guildId, payload);
 
       await interaction.reply({
         content: result.ok
@@ -182,7 +182,7 @@ async function execute(interaction, context) {
   }
 
   if (subcommand === 'export-members') {
-    const payload = dataExchangeService.buildMemberProfilesExport(interaction.guildId);
+    const payload = await dataExchangeService.buildMemberProfilesExport(interaction.guildId);
     await interaction.reply({
       content: `Đang export ${payload.items.length} member profile.`,
       files: [new AttachmentBuilder(
@@ -196,7 +196,7 @@ async function execute(interaction, context) {
 
   if (subcommand === 'export-attendance') {
     const voteId = interaction.options.getInteger('vote_id');
-    const payload = dataExchangeService.buildAttendanceExport(interaction.guildId, voteId);
+    const payload = await dataExchangeService.buildAttendanceExport(interaction.guildId, voteId);
 
     if (!payload) {
       await interaction.reply({

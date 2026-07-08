@@ -1,6 +1,6 @@
 # Discord Attendance Vote Bot
 
-Bot Discord viết bằng JavaScript để điểm danh tham gia **Bang Chiến** bằng **slash commands**, **button interactions**, và lưu dữ liệu bằng **SQLite**.
+Bot Discord viết bằng JavaScript để điểm danh tham gia **Bang Chiến** bằng **slash commands**, **button interactions**, và lưu dữ liệu bằng **SQLite** hoặc **MySQL**.
 
 ## Tính năng
 
@@ -31,7 +31,7 @@ Bot Discord viết bằng JavaScript để điểm danh tham gia **Bang Chiến*
 - **Node.js >= 22.5.0**
 - npm
 
-> Project dùng **built-in `node:sqlite`** của Node, không cần cài thêm native SQLite driver.
+> Local development dùng **built-in `node:sqlite`** của Node; hosting có thể dùng MySQL qua `mysql2`.
 
 ## Cài đặt
 
@@ -55,7 +55,14 @@ Nếu bạn đang ở Windows PowerShell và không có lệnh `cp`, có thể t
 BOT_TOKEN=your-discord-bot-token
 CLIENT_ID=your-discord-application-client-id
 TEST_GUILD_ID=your-test-guild-id
+
+# Local SQLite (default)
+DATABASE_CLIENT=sqlite
 DATABASE_PATH=./data/attendance-bot.sqlite
+
+# Hosted MySQL
+# DATABASE_CLIENT=mysql
+# DATABASE_URL=jdbc:mysql://host:3306/database?user=username&password=password
 ```
 
 ### 3. Cấu hình Discord Developer Portal
@@ -227,7 +234,11 @@ Một user được phép vote nếu:
 - `member role` và admin đều có thể xem
 - phản hồi được gửi dưới dạng **ephemeral**
 
-## Dữ liệu SQLite
+## Database
+
+Bot hỗ trợ 2 chế độ database:
+
+### SQLite local
 
 Mặc định file database nằm tại:
 
@@ -235,11 +246,77 @@ Mặc định file database nằm tại:
 data/attendance-bot.sqlite
 ```
 
-Bạn có thể đổi bằng biến môi trường:
+Cấu hình:
 
 ```env
+DATABASE_CLIENT=sqlite
 DATABASE_PATH=./data/attendance-bot.sqlite
 ```
+
+### MySQL trên hosting
+
+Nếu hosting cung cấp connection string MySQL/JDBC, cấu hình bằng environment variables trên hosting:
+
+```env
+DATABASE_CLIENT=mysql
+DATABASE_URL=jdbc:mysql://host:3306/database?user=username&password=password
+```
+
+Bot cũng hỗ trợ dạng có username/password trong URL authority:
+
+```env
+DATABASE_URL=jdbc:mysql://username:password@host:3306/database
+```
+
+Nếu provider yêu cầu SSL, bật:
+
+```env
+MYSQL_SSL=true
+MYSQL_SSL_REJECT_UNAUTHORIZED=true
+```
+
+Không nên hardcode connection string thật vào source code hoặc README.
+
+## Hosting
+
+Thông thường cấu hình trên hosting như sau:
+
+```text
+Install command: npm install
+Start command: npm start
+```
+
+Lệnh start hiện tại là:
+
+```bash
+npm start
+```
+
+Tương đương:
+
+```bash
+node src/index.js
+```
+
+Slash commands nên deploy riêng một lần khi mới setup hoặc khi có thay đổi command:
+
+```bash
+npm run deploy:commands
+```
+
+Nếu hosting chỉ cho một startup command và slash commands chưa được deploy, có thể dùng tạm:
+
+```bash
+npm run deploy:commands && npm start
+```
+
+Nhưng không khuyến nghị dùng lâu dài vì sẽ redeploy slash commands mỗi lần restart.
+
+Lưu ý hosting:
+
+- Nên chạy bot như background worker/long-running process, không cần HTTP server.
+- Nên chạy 1 instance bot duy nhất để tránh xử lý trùng Discord interactions.
+- Runtime cần `BOT_TOKEN`; `CLIENT_ID` chỉ cần khi chạy `npm run deploy:commands`.
 
 ## Kiểm thử
 

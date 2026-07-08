@@ -41,7 +41,7 @@ const data = new SlashCommandBuilder()
 
 async function execute(interaction, context) {
   const { settingsService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!isBotAdmin(interaction.member, settings)) {
     await interaction.reply({
@@ -55,7 +55,7 @@ async function execute(interaction, context) {
 
   if (subcommand === 'channel') {
     const channel = interaction.options.getChannel('channel', true);
-    settingsService.setAttendanceChannel(interaction.guildId, channel.id);
+    await settingsService.setAttendanceChannel(interaction.guildId, channel.id);
 
     await interaction.reply({
       content: `Đã cập nhật channel điểm danh thành ${channel}.`,
@@ -66,7 +66,7 @@ async function execute(interaction, context) {
 
   if (subcommand === 'member-role') {
     const role = interaction.options.getRole('role', true);
-    settingsService.setMemberRole(interaction.guildId, role.id);
+    await settingsService.setMemberRole(interaction.guildId, role.id);
 
     await interaction.reply({
       content: `Đã cập nhật role thành viên thành ${role}.`,
@@ -77,7 +77,7 @@ async function execute(interaction, context) {
 
   if (subcommand === 'admin-role') {
     const role = interaction.options.getRole('role', true);
-    settingsService.setAdminRole(interaction.guildId, role.id);
+    await settingsService.setAdminRole(interaction.guildId, role.id);
 
     await interaction.reply({
       content: `Đã cập nhật role admin thành ${role}.`,

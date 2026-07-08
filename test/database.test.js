@@ -13,18 +13,24 @@ function createTempDatabasePath() {
   return path.join(directory, 'test.sqlite');
 }
 
-test('database migrations create required tables and support vote lifecycle', () => {
-  const databasePath = createTempDatabasePath();
-  const db = createDatabase(databasePath);
+async function createSqliteDatabase() {
+  return createDatabase({
+    databaseClient: 'sqlite',
+    databasePath: createTempDatabasePath(),
+  });
+}
+
+test('database migrations create required tables and support vote lifecycle', async () => {
+  const db = await createSqliteDatabase();
   const repositories = createRepositories(db);
   const voteService = createVoteService(repositories);
   const profileService = createProfileService(repositories);
 
-  repositories.setGuildAdminRole('guild-1', 'admin-role', new Date().toISOString());
-  repositories.setGuildMemberRole('guild-1', 'member-role', new Date().toISOString());
-  repositories.setGuildAttendanceChannel('guild-1', 'channel-1', new Date().toISOString());
+  await repositories.setGuildAdminRole('guild-1', 'admin-role', new Date().toISOString());
+  await repositories.setGuildMemberRole('guild-1', 'member-role', new Date().toISOString());
+  await repositories.setGuildAttendanceChannel('guild-1', 'channel-1', new Date().toISOString());
 
-  const savedProfile = profileService.saveProfile({
+  const savedProfile = await profileService.saveProfile({
     guildId: 'guild-1',
     userId: 'member-1',
     ingameName: 'Thang207',
@@ -32,7 +38,7 @@ test('database migrations create required tables and support vote lifecycle', ()
   });
   assert.equal(savedProfile.ok, true);
 
-  const vote = voteService.createVote({
+  const vote = await voteService.createVote({
     guildId: 'guild-1',
     channelId: 'channel-1',
     title: 'Bang Chiến tối nay',
@@ -42,42 +48,41 @@ test('database migrations create required tables and support vote lifecycle', ()
   });
 
   assert.equal(vote.status, 'open');
-  assert.equal(repositories.getOpenVote('guild-1').id, vote.id);
+  assert.equal((await repositories.getOpenVote('guild-1')).id, vote.id);
 
-  const firstChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'join', savedProfile.profile);
+  const firstChoice = await voteService.saveMemberChoice(vote.id, 'member-1', 'join', savedProfile.profile);
   assert.equal(firstChoice.created, true);
   assert.equal(firstChoice.summary.joinCount, 1);
   assert.equal(firstChoice.summary.totalCount, 1);
   assert.deepEqual(firstChoice.summary.joinMonPhaiBreakdown, [{ monPhai: 'Tố Vấn', count: 1 }]);
 
-  const responseAfterFirstVote = repositories.getVoteResponse(vote.id, 'member-1');
+  const responseAfterFirstVote = await repositories.getVoteResponse(vote.id, 'member-1');
   assert.equal(responseAfterFirstVote.snapshot_ingame_name, 'Thang207');
   assert.equal(responseAfterFirstVote.snapshot_mon_phai, 'Tố Vấn');
 
-  const changedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
+  const changedChoice = await voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
   assert.equal(changedChoice.created, false);
   assert.equal(changedChoice.changed, true);
   assert.equal(changedChoice.summary.joinCount, 0);
   assert.equal(changedChoice.summary.reserveCount, 1);
 
-  const unchangedChoice = voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
+  const unchangedChoice = await voteService.saveMemberChoice(vote.id, 'member-1', 'reserve', savedProfile.profile);
   assert.equal(unchangedChoice.changed, false);
 
-  const closed = voteService.closeVote(vote.id);
+  const closed = await voteService.closeVote(vote.id);
   assert.equal(closed.vote.status, 'closed');
-  assert.equal(repositories.getOpenVote('guild-1'), null);
+  assert.equal(await repositories.getOpenVote('guild-1'), null);
 
-  db.close();
+  await db.close();
 });
 
-test('vote history respects default ordering and max limit clamping', () => {
-  const databasePath = createTempDatabasePath();
-  const db = createDatabase(databasePath);
+test('vote history respects default ordering and max limit clamping', async () => {
+  const db = await createSqliteDatabase();
   const repositories = createRepositories(db);
   const voteService = createVoteService(repositories);
 
   for (let index = 0; index < 25; index += 1) {
-    const vote = voteService.createVote({
+    const vote = await voteService.createVote({
       guildId: 'guild-2',
       channelId: 'channel-2',
       title: `Vote ${index + 1}`,
@@ -86,12 +91,12 @@ test('vote history respects default ordering and max limit clamping', () => {
       createdBy: 'user-admin',
     });
 
-    voteService.closeVote(vote.id);
+    await voteService.closeVote(vote.id);
   }
 
-  const votes = voteService.listVoteHistory('guild-2', 999);
+  const votes = await voteService.listVoteHistory('guild-2', 999);
   assert.equal(votes.length, HISTORY_MAX_LIMIT);
   assert.ok(votes[0].id > votes[votes.length - 1].id);
 
-  db.close();
+  await db.close();
 });

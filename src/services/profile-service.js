@@ -2,7 +2,7 @@ const { nowIso } = require('../utils/time');
 const { isValidMonPhai } = require('../constants/mon-phai');
 
 function createProfileService(repositories) {
-  function validateProfileInput({ guildId, userId, ingameName, monPhai }) {
+  async function validateProfileInput({ guildId, userId, ingameName, monPhai }) {
     const trimmedIngameName = ingameName?.trim();
 
     if (!trimmedIngameName) {
@@ -19,7 +19,7 @@ function createProfileService(repositories) {
       };
     }
 
-    const existingByName = repositories.findMemberProfileByIngameName(guildId, trimmedIngameName);
+    const existingByName = await repositories.findMemberProfileByIngameName(guildId, trimmedIngameName);
     if (existingByName && existingByName.user_id !== userId) {
       return {
         ok: false,
@@ -34,13 +34,13 @@ function createProfileService(repositories) {
     };
   }
 
-  function saveProfile({ guildId, userId, ingameName, monPhai }) {
-    const validation = validateProfileInput({ guildId, userId, ingameName, monPhai });
+  async function saveProfile({ guildId, userId, ingameName, monPhai }) {
+    const validation = await validateProfileInput({ guildId, userId, ingameName, monPhai });
     if (!validation.ok) {
       return validation;
     }
 
-    const profile = repositories.upsertMemberProfile(
+    const profile = await repositories.upsertMemberProfile(
       guildId,
       userId,
       validation.ingameName,
@@ -54,15 +54,15 @@ function createProfileService(repositories) {
     };
   }
 
-  function getProfile(guildId, userId) {
+  async function getProfile(guildId, userId) {
     return repositories.getMemberProfile(guildId, userId);
   }
 
-  function listProfiles(guildId) {
+  async function listProfiles(guildId) {
     return repositories.listMemberProfiles(guildId);
   }
 
-  function validateImportDataset(guildId, payload) {
+  async function validateImportDataset(guildId, payload) {
     if (!payload || typeof payload !== 'object') {
       return {
         ok: false,
@@ -113,7 +113,7 @@ function createProfileService(repositories) {
         };
       }
 
-      const validation = validateProfileInput({
+      const validation = await validateProfileInput({
         guildId,
         userId,
         ingameName,
@@ -149,13 +149,13 @@ function createProfileService(repositories) {
     };
   }
 
-  function importProfiles(guildId, payload) {
-    const validation = validateImportDataset(guildId, payload);
+  async function importProfiles(guildId, payload) {
+    const validation = await validateImportDataset(guildId, payload);
     if (!validation.ok) {
       return validation;
     }
 
-    const profiles = repositories.upsertMemberProfiles(guildId, validation.items, nowIso());
+    const profiles = await repositories.upsertMemberProfiles(guildId, validation.items, nowIso());
     return {
       ok: true,
       profiles,

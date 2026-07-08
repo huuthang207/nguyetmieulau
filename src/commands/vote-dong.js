@@ -8,7 +8,7 @@ const data = new SlashCommandBuilder()
 
 async function execute(interaction, context) {
   const { settingsService, voteService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!isBotAdmin(interaction.member, settings)) {
     await interaction.reply({
@@ -18,7 +18,7 @@ async function execute(interaction, context) {
     return;
   }
 
-  const openVote = voteService.getOpenVote(interaction.guildId);
+  const openVote = await voteService.getOpenVote(interaction.guildId);
   if (!openVote) {
     await interaction.reply({
       content: 'Hiện không có vote nào đang mở.',
@@ -27,7 +27,7 @@ async function execute(interaction, context) {
     return;
   }
 
-  const { vote, summary } = voteService.closeVote(openVote.id);
+  const { vote, summary } = await voteService.closeVote(openVote.id);
   let warning = '';
 
   try {

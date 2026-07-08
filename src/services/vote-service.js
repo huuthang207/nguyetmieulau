@@ -4,21 +4,21 @@ const HISTORY_DEFAULT_LIMIT = 5;
 const HISTORY_MAX_LIMIT = 20;
 
 function createVoteService(repositories) {
-  function getVoteSummary(voteId) {
+  async function getVoteSummary(voteId) {
     return {
-      ...repositories.getVoteSummary(voteId),
-      joinMonPhaiBreakdown: repositories.getJoinMonPhaiBreakdown(voteId),
+      ...await repositories.getVoteSummary(voteId),
+      joinMonPhaiBreakdown: await repositories.getJoinMonPhaiBreakdown(voteId),
     };
   }
 
-  function getVoteWithSummary(vote) {
+  async function getVoteWithSummary(vote) {
     if (!vote) {
       return null;
     }
 
     return {
       vote,
-      summary: getVoteSummary(vote.id),
+      summary: await getVoteSummary(vote.id),
     };
   }
 
@@ -79,26 +79,46 @@ function createVoteService(repositories) {
     };
   }
 
+  async function resolveVoteForExport(guildId, voteId) {
+    if (voteId) {
+      return repositories.getVoteByIdForGuild(guildId, voteId);
+    }
+
+    return repositories.getOpenVote(guildId);
+  }
+
+  async function exportAttendance(guildId, voteId) {
+    const vote = await resolveVoteForExport(guildId, voteId);
+    if (!vote) {
+      return null;
+    }
+
+    return {
+      vote,
+      items: await repositories.listAttendanceForVote(vote.id),
+    };
+  }
+
   return {
     HISTORY_DEFAULT_LIMIT,
     HISTORY_MAX_LIMIT,
 
-    getOpenVote(guildId) {
+    async getOpenVote(guildId) {
       return repositories.getOpenVote(guildId);
     },
 
-    getVoteByIdForGuild(guildId, voteId) {
+    async getVoteByIdForGuild(guildId, voteId) {
       return repositories.getVoteByIdForGuild(guildId, voteId);
     },
 
-    getMostRecentVote(guildId) {
+    async getMostRecentVote(guildId) {
       return repositories.getMostRecentVote(guildId);
     },
 
     getVoteSummary,
     getVoteWithSummary,
 
-    createVote({ guildId, channelId, title, eventTime, description, createdBy }) {
+    async createVote({ guildId, channelId, title, eventTime, description, createdBy }) {
       const timestamp = nowIso();
       return repositories.createVote({
         guildId,
@@ -112,17 +132,17 @@ function createVoteService(repositories) {
       });
     },
 
-    deleteVote(voteId) {
-      repositories.deleteVote(voteId);
+    async deleteVote(voteId) {
+      await repositories.deleteVote(voteId);
     },
 
-    updateVoteMessageId(voteId, messageId) {
+    async updateVoteMessageId(voteId, messageId) {
       return repositories.updateVoteMessageId(voteId, messageId);
     },
 
-    saveMemberChoice(voteId, userId, choice, profile) {
+    async saveMemberChoice(voteId, userId, choice, profile) {
       const timestamp = nowIso();
-      const result = repositories.upsertVoteResponse(
+      const result = await repositories.upsertVoteResponse(
         voteId,
         userId,
         choice,
@@ -131,77 +151,61 @@ function createVoteService(repositories) {
         timestamp,
       );
 
-      let vote = repositories.getVoteById(voteId);
+      let vote = await repositories.getVoteById(voteId);
       if (result.changed) {
-        vote = repositories.touchVote(voteId, timestamp);
+        vote = await repositories.touchVote(voteId, timestamp);
       }
 
       return {
         ...result,
         vote,
-        summary: getVoteSummary(voteId),
+        summary: await getVoteSummary(voteId),
       };
     },
 
-    closeVote(voteId) {
-      const vote = repositories.closeVote(voteId, nowIso());
+    async closeVote(voteId) {
+      const vote = await repositories.closeVote(voteId, nowIso());
       return {
         vote,
-        summary: getVoteSummary(voteId),
+        summary: await getVoteSummary(voteId),
       };
     },
 
-    resolveVoteForView(guildId, voteId) {
+    async resolveVoteForView(guildId, voteId) {
       if (voteId) {
-        return getVoteWithSummary(repositories.getVoteByIdForGuild(guildId, voteId));
+        return getVoteWithSummary(await repositories.getVoteByIdForGuild(guildId, voteId));
       }
 
-      const openVote = repositories.getOpenVote(guildId);
+      const openVote = await repositories.getOpenVote(guildId);
       if (openVote) {
         return getVoteWithSummary(openVote);
       }
 
-      return getVoteWithSummary(repositories.getMostRecentVote(guildId));
+      return getVoteWithSummary(await repositories.getMostRecentVote(guildId));
     },
 
-    getVoteDetailsForView(guildId, voteId) {
-      const vote = repositories.getVoteByIdForGuild(guildId, voteId);
+    async getVoteDetailsForView(guildId, voteId) {
+      const vote = await repositories.getVoteByIdForGuild(guildId, voteId);
       if (!vote) {
         return null;
       }
 
-      const items = repositories.listAttendanceForVote(vote.id);
+      const items = await repositories.listAttendanceForVote(vote.id);
       return {
         vote,
-        summary: getVoteSummary(vote.id),
+        summary: await getVoteSummary(vote.id),
         details: buildVoteDetails(items),
       };
     },
 
-    resolveVoteForExport(guildId, voteId) {
-      if (voteId) {
-        return repositories.getVoteByIdForGuild(guildId, voteId);
-      }
+    resolveVoteForExport,
 
-      return repositories.getOpenVote(guildId);
-    },
-
-    listVoteHistory(guildId, limit) {
+    async listVoteHistory(guildId, limit) {
       const safeLimit = Math.max(1, Math.min(limit || HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT));
       return repositories.listRecentVotes(guildId, safeLimit);
     },
 
-    exportAttendance(guildId, voteId) {
-      const vote = this.resolveVoteForExport(guildId, voteId);
-      if (!vote) {
-        return null;
-      }
-
-      return {
-        vote,
-        items: repositories.listAttendanceForVote(vote.id),
-      };
-    },
+    exportAttendance,
   };
 }
 

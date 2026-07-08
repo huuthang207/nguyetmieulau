@@ -13,7 +13,6 @@ const voteConfigCommand = require('../src/commands/vote-config');
 const voteCloseCommand = require('../src/commands/vote-dong');
 const voteViewCommand = require('../src/commands/vote-xem');
 const voteHistoryCommand = require('../src/commands/vote-lich-su');
-const profileCommand = require('../src/commands/profile');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-auth-test-'));
@@ -140,8 +139,8 @@ function createInteraction({ guild, member, options = {}, userId = 'user-1' }) {
   };
 }
 
-function createContext() {
-  const db = createDatabase(createTempDatabasePath());
+async function createContext() {
+  const db = await createDatabase({ databaseClient: 'sqlite', databasePath: createTempDatabasePath() });
   const repositories = createRepositories(db);
   const profileService = createProfileService(repositories);
   const voteService = createVoteService(repositories);
@@ -160,7 +159,7 @@ function createContext() {
 }
 
 test('vote-config rejects unauthorized users', async () => {
-  const context = createContext();
+  const context = await createContext();
   const guild = createGuild({ channels: { 'attendance-channel': createTextChannel() } });
   const interaction = createInteraction({
     guild,
@@ -175,11 +174,11 @@ test('vote-config rejects unauthorized users', async () => {
 
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /không có quyền quản trị bot/);
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote-xem and vote-lich-su reject unauthorized users', async () => {
-  const context = createContext();
+  const context = await createContext();
   const guild = createGuild();
 
   const viewInteraction = createInteraction({ guild, member: createMember() });
@@ -190,11 +189,11 @@ test('vote-xem and vote-lich-su reject unauthorized users', async () => {
   await voteHistoryCommand.execute(historyInteraction, context);
   assert.match(historyInteraction.replies[0].content, /không có quyền xem dữ liệu điểm danh/);
 
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote-dong disables vote buttons but keeps details button enabled for the closed vote', async () => {
-  const context = createContext();
+  const context = await createContext();
   const adminRole = createRole('admin-role');
   const attendanceChannel = createTextChannel();
   const guild = createGuild({
@@ -202,8 +201,8 @@ test('vote-dong disables vote buttons but keeps details button enabled for the c
     channels: { 'attendance-channel': attendanceChannel },
   });
 
-  context.services.settingsService.setAdminRole(guild.id, adminRole.id);
-  const vote = context.repositories.createVote({
+  await context.services.settingsService.setAdminRole(guild.id, adminRole.id);
+  const vote = await context.repositories.createVote({
     guildId: guild.id,
     channelId: attendanceChannel.id,
     title: 'Vote cần đóng',
@@ -215,7 +214,7 @@ test('vote-dong disables vote buttons but keeps details button enabled for the c
   });
 
   const message = await attendanceChannel.send({ content: 'vote' });
-  context.repositories.updateVoteMessageId(vote.id, message.id);
+  await context.repositories.updateVoteMessageId(vote.id, message.id);
 
   const interaction = createInteraction({
     guild,
@@ -234,7 +233,7 @@ test('vote-dong disables vote buttons but keeps details button enabled for the c
   assert.equal(reserveButton.data.disabled, true);
   assert.equal(absentButton.data.disabled, true);
   assert.equal(detailsButton.data.disabled, false);
-  assert.equal(context.services.voteService.getOpenVote(guild.id), null);
+  assert.equal(await context.services.voteService.getOpenVote(guild.id), null);
 
-  context.db.close();
+  await context.db.close();
 });

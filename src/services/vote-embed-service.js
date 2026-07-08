@@ -16,12 +16,19 @@ const CHOICE_LABELS = {
   absent: 'Không Tham Gia',
 };
 
+const DETAIL_LIST_LABELS = {
+  join: '✅ Tham Gia',
+  reserve: '🟡 Dự Bị',
+  absent: '❌ Không Tham Gia',
+};
+
 const EMPTY_FIELD = '​';
 const WHITE_BULLET_EMOJI = '<a:whitebullet:1522802826395521124>';
 const GREEN_ARROW_EMOJI = '<a:greenarrow:1522797903838449754>';
 const VOTE_ITEM_EMOJI = GREEN_ARROW_EMOJI;
-const DETAIL_PAGE_SIZE_JOIN = 10;
-const DETAIL_PAGE_SIZE_OTHER = 15;
+const DETAIL_PAGE_SIZE = 25;
+const DETAIL_PAGE_SIZE_JOIN = DETAIL_PAGE_SIZE;
+const DETAIL_PAGE_SIZE_OTHER = DETAIL_PAGE_SIZE;
 
 function getStatusLabel(status) {
   return status === 'closed' ? 'Đã đóng' : 'Đang mở';
@@ -71,6 +78,17 @@ function buildValueColumn(vote, summary) {
   ].join('\n');
 }
 
+function buildJoinMonPhaiBreakdownText(summary) {
+  const breakdown = summary.joinMonPhaiBreakdown || [];
+  if (breakdown.length === 0) {
+    return null;
+  }
+
+  return breakdown
+    .map((item) => `${formatMonPhaiWithEmoji(item.monPhai)}: ${item.count}`)
+    .join('\n');
+}
+
 function buildEmbedFields(vote, summary) {
   const fields = [];
 
@@ -94,6 +112,15 @@ function buildEmbedFields(vote, summary) {
       inline: true,
     },
   );
+
+  const joinMonPhaiBreakdownText = buildJoinMonPhaiBreakdownText(summary);
+  if (joinMonPhaiBreakdownText) {
+    fields.push({
+      name: 'Tham Gia theo môn phái',
+      value: joinMonPhaiBreakdownText,
+      inline: false,
+    });
+  }
 
   return fields;
 }
@@ -170,7 +197,7 @@ function buildOverviewComponents(voteId) {
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`vote-detail:${voteId}:join-overview`)
+        .setCustomId(`vote-detail:${voteId}:join:1`)
         .setLabel('Xem Tham Gia')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
@@ -230,7 +257,7 @@ function buildJoinOverviewComponents(voteId, details) {
   components.push(
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`vote-detail:${voteId}:overview`)
+        .setCustomId(`vote-detail:${voteId}:join:1`)
         .setLabel('⬅ Quay lại')
         .setStyle(ButtonStyle.Secondary),
     ),
@@ -256,15 +283,16 @@ function paginate(items, page, pageSize) {
     page: safePage,
     totalPages,
     items: items.slice(start, start + pageSize),
+    startIndex: start,
   };
 }
 
-function buildPagedListText(items) {
+function buildPagedListText(items, startIndex = 0) {
   if (items.length === 0) {
     return 'Chưa có';
   }
 
-  return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
+  return items.map((item, index) => `${startIndex + index + 1}. ${item}`).join('\n');
 }
 
 function buildPaginationButton(customId, label, disabled) {
@@ -275,12 +303,199 @@ function buildPaginationButton(customId, label, disabled) {
     .setDisabled(disabled);
 }
 
+function buildJoinDetailPages(details) {
+  const pages = [];
+  const sectCount = details.joinGroups.length;
+
+  details.joinGroups.forEach((group, groupIndex) => {
+    const totalPages = Math.max(1, Math.ceil(group.names.length / DETAIL_PAGE_SIZE));
+
+    for (let page = 1; page <= totalPages; page += 1) {
+      const start = (page - 1) * DETAIL_PAGE_SIZE;
+      pages.push({
+        type: 'join',
+        monPhai: group.monPhai,
+        names: group.names.slice(start, start + DETAIL_PAGE_SIZE),
+        startIndex: start,
+        sectPage: page,
+        sectTotalPages: totalPages,
+        sectIndex: groupIndex + 1,
+        sectCount,
+        totalCount: group.names.length,
+      });
+    }
+  });
+
+  if (pages.length === 0) {
+    pages.push({
+      type: 'join',
+      monPhai: null,
+      names: [],
+      startIndex: 0,
+      sectPage: 1,
+      sectTotalPages: 1,
+      sectIndex: 0,
+      sectCount: 0,
+      totalCount: 0,
+    });
+  }
+
+  return pages;
+}
+
+function buildChoiceDetailPages(names, type) {
+  const totalPages = Math.max(1, Math.ceil(names.length / DETAIL_PAGE_SIZE));
+  const pages = [];
+
+  for (let page = 1; page <= totalPages; page += 1) {
+    const start = (page - 1) * DETAIL_PAGE_SIZE;
+    pages.push({
+      type,
+      names: names.slice(start, start + DETAIL_PAGE_SIZE),
+      startIndex: start,
+      page,
+      totalPages,
+      totalCount: names.length,
+    });
+  }
+
+  return pages;
+}
+
+function getDetailPages(details, listType) {
+  if (listType === 'join') {
+    return buildJoinDetailPages(details);
+  }
+
+  if (listType === 'reserve') {
+    return buildChoiceDetailPages(details.reserveNames, 'reserve');
+  }
+
+  return buildChoiceDetailPages(details.absentNames, 'absent');
+}
+
+function getSafeDetailPage(details, listType, page) {
+  const pages = getDetailPages(details, listType);
+  const safePage = Math.min(Math.max(page || 1, 1), pages.length);
+
+  return {
+    page: safePage,
+    totalPages: pages.length,
+    detailPage: pages[safePage - 1],
+  };
+}
+
+function getListCount(details, listType) {
+  if (listType === 'join') {
+    return details.joinGroups.reduce((total, group) => total + group.count, 0);
+  }
+
+  if (listType === 'reserve') {
+    return details.reserveNames.length;
+  }
+
+  return details.absentNames.length;
+}
+
+function buildDetailSelect(voteId, details, selectedType) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`vote-detail:${voteId}:list-select`)
+    .setPlaceholder('Chọn danh sách cần xem')
+    .addOptions(
+      {
+        label: `Tham Gia (${getListCount(details, 'join')})`,
+        value: `vote-detail:${voteId}:join:1`,
+        emoji: '✅',
+        default: selectedType === 'join',
+      },
+      {
+        label: `Dự Bị (${getListCount(details, 'reserve')})`,
+        value: `vote-detail:${voteId}:reserve:1`,
+        emoji: '🟡',
+        default: selectedType === 'reserve',
+      },
+      {
+        label: `Không Tham Gia (${getListCount(details, 'absent')})`,
+        value: `vote-detail:${voteId}:absent:1`,
+        emoji: '❌',
+        default: selectedType === 'absent',
+      },
+    );
+
+  return new ActionRowBuilder().addComponents(select);
+}
+
+function buildDetailPagination(voteId, listType, currentPage, totalPages) {
+  const prevPage = Math.max(1, currentPage - 1);
+  const nextPage = Math.min(totalPages, currentPage + 1);
+
+  return new ActionRowBuilder().addComponents(
+    buildPaginationButton(
+      `vote-detail:${voteId}:${listType}:${prevPage}:prev`,
+      '⬅ Trước',
+      currentPage <= 1,
+    ),
+    buildPaginationButton(
+      `vote-detail:${voteId}:${listType}:${nextPage}:next`,
+      'Sau ➡',
+      currentPage >= totalPages,
+    ),
+  );
+}
+
+function buildJoinDetailEmbed(vote, detailPage) {
+  const title = detailPage.monPhai
+    ? `✅ Tham Gia - ${formatMonPhaiWithEmoji(detailPage.monPhai)}`
+    : `✅ Tham Gia - Vote #${vote.id}`;
+  const description = detailPage.names.length > 0
+    ? buildPagedListText(detailPage.names, detailPage.startIndex)
+    : 'Chưa có người vote Tham Gia.';
+  const footer = detailPage.monPhai
+    ? `Môn phái ${detailPage.sectIndex}/${detailPage.sectCount} • Trang ${detailPage.sectPage}/${detailPage.sectTotalPages} • ${detailPage.totalCount} người`
+    : '0 người';
+
+  return new EmbedBuilder()
+    .setColor(getStatusColor(vote.status))
+    .setTitle(title)
+    .setDescription(description)
+    .setFooter({ text: footer });
+}
+
+function buildOtherDetailEmbed(vote, listType, detailPage) {
+  const description = detailPage.names.length > 0
+    ? buildPagedListText(detailPage.names, detailPage.startIndex)
+    : `Chưa có người vote ${CHOICE_LABELS[listType]}.`;
+
+  return new EmbedBuilder()
+    .setColor(getStatusColor(vote.status))
+    .setTitle(`${DETAIL_LIST_LABELS[listType]} - Vote #${vote.id}`)
+    .setDescription(description)
+    .setFooter({ text: `Trang ${detailPage.page}/${detailPage.totalPages} • ${detailPage.totalCount} người` });
+}
+
+function buildVoteDetailListPayload(vote, details, listType = 'join', page = 1) {
+  const safeListType = ['join', 'reserve', 'absent'].includes(listType) ? listType : 'join';
+  const pageResult = getSafeDetailPage(details, safeListType, page);
+  const embed = safeListType === 'join'
+    ? buildJoinDetailEmbed(vote, pageResult.detailPage)
+    : buildOtherDetailEmbed(vote, safeListType, pageResult.detailPage);
+
+  return {
+    embeds: [embed],
+    components: [
+      buildDetailSelect(vote.id, details, safeListType),
+      buildDetailPagination(vote.id, safeListType, pageResult.page, pageResult.totalPages),
+    ],
+    ephemeral: true,
+  };
+}
+
 function buildJoinSectPayload(vote, group, page) {
   const pagination = paginate(group.names, page, DETAIL_PAGE_SIZE_JOIN);
   const embed = new EmbedBuilder()
     .setColor(getStatusColor(vote.status))
     .setTitle(`✅ Tham Gia - ${formatMonPhaiWithEmoji(group.monPhai)}`)
-    .setDescription(buildPagedListText(pagination.items))
+    .setDescription(buildPagedListText(pagination.items, pagination.startIndex))
     .setFooter({ text: `Trang ${pagination.page}/${pagination.totalPages} • ${group.count} người` });
 
   const sectKey = getMonPhaiKey(group.monPhai);
@@ -299,7 +514,7 @@ function buildJoinSectPayload(vote, group, page) {
         pagination.page >= pagination.totalPages,
       ),
       new ButtonBuilder()
-        .setCustomId(`vote-detail:${vote.id}:join-overview`)
+        .setCustomId(`vote-detail:${vote.id}:join:1`)
         .setLabel('⬅ Về danh sách phái')
         .setStyle(ButtonStyle.Primary),
     ),
@@ -317,7 +532,7 @@ function buildChoiceListPayload(vote, choiceLabel, choiceKey, names, page) {
   const embed = new EmbedBuilder()
     .setColor(getStatusColor(vote.status))
     .setTitle(`${choiceLabel} - Vote #${vote.id}`)
-    .setDescription(buildPagedListText(pagination.items))
+    .setDescription(buildPagedListText(pagination.items, pagination.startIndex))
     .setFooter({ text: `Trang ${pagination.page}/${pagination.totalPages} • ${names.length} người` });
 
   const prevPage = Math.max(1, pagination.page - 1);
@@ -335,7 +550,7 @@ function buildChoiceListPayload(vote, choiceLabel, choiceKey, names, page) {
         pagination.page >= pagination.totalPages,
       ),
       new ButtonBuilder()
-        .setCustomId(`vote-detail:${vote.id}:overview`)
+        .setCustomId(`vote-detail:${vote.id}:join:1`)
         .setLabel('⬅ Quay lại')
         .setStyle(ButtonStyle.Primary),
     ),
@@ -362,10 +577,12 @@ function buildHistoryEmbed(votes) {
 
 module.exports = {
   CHOICE_LABELS,
+  DETAIL_PAGE_SIZE,
   buildVoteEmbed,
   buildVoteButtons,
   buildVoteMessagePayload,
   buildVoteDetailsPayload,
+  buildVoteDetailListPayload,
   buildJoinOverviewPayload,
   buildJoinSectPayload,
   buildChoiceListPayload,

@@ -4,6 +4,7 @@ const {
   CHOICE_LABELS,
   buildVoteMessagePayload,
   buildVoteDetailsPayload,
+  buildVoteDetailListPayload,
   buildJoinOverviewPayload,
   buildJoinSectPayload,
   buildChoiceListPayload,
@@ -38,11 +39,12 @@ function parseVoteDetailRoute(route) {
     };
   }
 
-  match = /^vote-detail:(\d+):(reserve|absent):(\d+)(?::(prev|next))?$/.exec(route);
+  match = /^vote-detail:(\d+):(join|reserve|absent):(\d+)(?::(prev|next))?$/.exec(route);
   if (match) {
     return {
       voteId: Number(match[1]),
-      action: match[2],
+      action: 'detail-list',
+      listType: match[2],
       page: Number(match[3]),
     };
   }
@@ -60,12 +62,12 @@ function parseVoteDetailRoute(route) {
   return null;
 }
 
-function getVoteDetailResult(context, guildId, voteId) {
+async function getVoteDetailResult(context, guildId, voteId) {
   return context.services.voteService.getVoteDetailsForView(guildId, voteId);
 }
 
 async function ensureCanViewAttendance(interaction, context) {
-  const settings = context.services.settingsService.getSettings(interaction.guildId);
+  const settings = await context.services.settingsService.getSettings(interaction.guildId);
 
   if (!canViewAttendance(interaction.member, settings)) {
     const payload = {
@@ -131,7 +133,7 @@ async function handleVoteDetailsButton(interaction, context, payload) {
     return true;
   }
 
-  const result = getVoteDetailResult(context, interaction.guildId, payload.voteId);
+  const result = await getVoteDetailResult(context, interaction.guildId, payload.voteId);
   if (!result) {
     await interaction.reply({
       content: 'Không tìm thấy vote tương ứng.',
@@ -140,13 +142,13 @@ async function handleVoteDetailsButton(interaction, context, payload) {
     return true;
   }
 
-  await interaction.reply(buildVoteDetailsPayload(result.vote, result.summary));
+  await interaction.reply(buildVoteDetailListPayload(result.vote, result.details, 'join', 1));
   return true;
 }
 
 async function handleVoteChoiceButton(interaction, context, payload) {
   const { settingsService, voteService, profileService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!canVote(interaction.member, settings)) {
     await interaction.reply({
@@ -156,7 +158,7 @@ async function handleVoteChoiceButton(interaction, context, payload) {
     return true;
   }
 
-  const vote = voteService.getVoteByIdForGuild(interaction.guildId, payload.voteId);
+  const vote = await voteService.getVoteByIdForGuild(interaction.guildId, payload.voteId);
   if (!vote) {
     await interaction.reply({
       content: 'Không tìm thấy vote tương ứng.',
@@ -173,7 +175,7 @@ async function handleVoteChoiceButton(interaction, context, payload) {
     return true;
   }
 
-  const profile = profileService.getProfile(interaction.guildId, interaction.user.id);
+  const profile = await profileService.getProfile(interaction.guildId, interaction.user.id);
   if (!profile) {
     await interaction.reply({
       content: 'Bạn chưa có thông tin nhân vật. Hãy dùng `/profile set` để cập nhật `ingame_name` và `mon_phai` trước khi vote.',
@@ -182,7 +184,7 @@ async function handleVoteChoiceButton(interaction, context, payload) {
     return true;
   }
 
-  const result = voteService.saveMemberChoice(vote.id, interaction.user.id, payload.action, profile);
+  const result = await voteService.saveMemberChoice(vote.id, interaction.user.id, payload.action, profile);
   await interaction.message.edit(buildVoteMessagePayload(result.vote, result.summary));
 
   let content = `Bạn đã chọn: ${CHOICE_LABELS[payload.action]}`;
@@ -210,7 +212,7 @@ async function handleVoteDetailInteraction(interaction, context, route, isUpdate
     return true;
   }
 
-  const result = getVoteDetailResult(context, interaction.guildId, payload.voteId);
+  const result = await getVoteDetailResult(context, interaction.guildId, payload.voteId);
   if (!result) {
     const errorPayload = {
       content: 'Không tìm thấy vote tương ứng.',
@@ -224,6 +226,15 @@ async function handleVoteDetailInteraction(interaction, context, route, isUpdate
 
   if (payload.action === 'overview') {
     await respondWithDetailView(interaction, buildVoteDetailsPayload(result.vote, result.summary), isUpdate);
+    return true;
+  }
+
+  if (payload.action === 'detail-list') {
+    await respondWithDetailView(
+      interaction,
+      buildVoteDetailListPayload(result.vote, result.details, payload.listType, payload.page),
+      isUpdate,
+    );
     return true;
   }
 

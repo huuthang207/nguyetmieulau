@@ -45,6 +45,9 @@ test('vote message payload includes details button and keeps it enabled when vot
   assert.equal(absentButton.data.disabled, true);
   assert.equal(detailsButton.data.disabled, false);
   assert.equal(detailsButton.data.label, 'Xem chi tiết');
+
+  const breakdownField = payload.embeds[0].data.fields.find((field) => field.name === 'Tham Gia theo môn phái');
+  assert.match(breakdownField?.value, /Tố Vấn: 5/);
 });
 
 test('history embed renders vote list lines', () => {

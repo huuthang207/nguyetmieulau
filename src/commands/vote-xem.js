@@ -14,7 +14,7 @@ const data = new SlashCommandBuilder()
 
 async function execute(interaction, context) {
   const { settingsService, voteService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!canViewAttendance(interaction.member, settings)) {
     await interaction.reply({
@@ -25,7 +25,7 @@ async function execute(interaction, context) {
   }
 
   const voteId = interaction.options.getInteger('vote_id');
-  const result = voteService.resolveVoteForView(interaction.guildId, voteId);
+  const result = await voteService.resolveVoteForView(interaction.guildId, voteId);
 
   if (!result) {
     await interaction.reply({

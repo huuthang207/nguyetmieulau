@@ -1,12 +1,12 @@
 const { Buffer } = require('node:buffer');
 
-function createDataExchangeService({ repositories, profileService, voteService }) {
-  function buildMemberProfilesExport(guildId) {
+function createDataExchangeService({ profileService, voteService }) {
+  async function buildMemberProfilesExport(guildId) {
     return {
       type: 'member_profiles',
       guild_id: guildId,
       exported_at: new Date().toISOString(),
-      items: profileService.listProfiles(guildId).map((profile) => ({
+      items: (await profileService.listProfiles(guildId)).map((profile) => ({
         discord_user_id: profile.user_id,
         ingame_name: profile.ingame_name,
         mon_phai: profile.mon_phai,
@@ -14,8 +14,8 @@ function createDataExchangeService({ repositories, profileService, voteService }
     };
   }
 
-  function buildAttendanceExport(guildId, voteId) {
-    const exportData = voteService.exportAttendance(guildId, voteId);
+  async function buildAttendanceExport(guildId, voteId) {
+    const exportData = await voteService.exportAttendance(guildId, voteId);
     if (!exportData) {
       return null;
     }

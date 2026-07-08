@@ -30,7 +30,7 @@ function createGuild({ roles = {}, channels = {} } = {}) {
 
 test('settings service reports missing guild configuration items clearly', async () => {
   const service = createSettingsService({
-    getGuildSettings() {
+    async getGuildSettings() {
       return null;
     },
   });
@@ -48,7 +48,7 @@ test('settings service reports missing guild configuration items clearly', async
 
 test('settings service treats deleted or invalid config targets as invalid', async () => {
   const service = createSettingsService({
-    getGuildSettings() {
+    async getGuildSettings() {
       return {
         admin_role_id: 'admin-role',
         member_role_id: 'member-role',
@@ -69,7 +69,7 @@ test('settings service treats deleted or invalid config targets as invalid', asy
 
 test('settings service accepts valid guild configuration', async () => {
   const service = createSettingsService({
-    getGuildSettings() {
+    async getGuildSettings() {
       return {
         admin_role_id: 'admin-role',
         member_role_id: 'member-role',

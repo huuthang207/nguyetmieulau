@@ -7,9 +7,12 @@ const { createDatabase } = require('../src/db/database');
 const { createRepositories } = require('../src/db/repositories');
 const { createSettingsService } = require('../src/services/settings-service');
 const { createVoteService } = require('../src/services/vote-service');
+const { createProfileService } = require('../src/services/profile-service');
+const { createDataExchangeService } = require('../src/services/data-exchange-service');
 const voteCreateCommand = require('../src/commands/vote-tao');
 const voteCloseCommand = require('../src/commands/vote-dong');
-const { handleVoteButton } = require('../src/interactions/vote-buttons');
+const profileCommand = require('../src/commands/profile');
+const { handleVoteButton, handleVoteDetailSelect } = require('../src/interactions/vote-buttons');
 
 function createTempDatabasePath() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-bot-command-test-'));
@@ -128,6 +131,12 @@ function createChatInputInteraction({ guild, member, userId = 'user-1', options 
       getRole(name) {
         return options[name] ?? null;
       },
+      getUser(name) {
+        return options[name] ?? null;
+      },
+      getAttachment(name) {
+        return options[name] ?? null;
+      },
     },
     async reply(payload) {
       replies.push(payload);
@@ -137,6 +146,7 @@ function createChatInputInteraction({ guild, member, userId = 'user-1', options 
 
 function createButtonInteraction({ guild, member, voteId, choice, message, userId = 'member-1' }) {
   const replies = [];
+  const updates = [];
 
   return {
     guildId: guild.id,
@@ -146,25 +156,58 @@ function createButtonInteraction({ guild, member, voteId, choice, message, userI
     customId: `vote:${voteId}:${choice}`,
     user: { id: userId },
     replies,
+    updates,
     async reply(payload) {
       replies.push(payload);
+    },
+    async update(payload) {
+      updates.push(payload);
     },
   };
 }
 
-function createContext() {
-  const db = createDatabase(createTempDatabasePath());
+function createSelectInteraction({ guild, member, value, userId = 'member-1' }) {
+  const replies = [];
+  const updates = [];
+
+  return {
+    guildId: guild.id,
+    guild,
+    member,
+    user: { id: userId },
+    values: [value],
+    replies,
+    updates,
+    async reply(payload) {
+      replies.push(payload);
+    },
+    async update(payload) {
+      updates.push(payload);
+    },
+  };
+}
+
+async function createContext() {
+  const db = await createDatabase({ databaseClient: 'sqlite', databasePath: createTempDatabasePath() });
   const repositories = createRepositories(db);
+  const profileService = createProfileService(repositories);
+  const voteService = createVoteService(repositories);
   const services = {
     settingsService: createSettingsService(repositories),
-    voteService: createVoteService(repositories),
+    profileService,
+    voteService,
+    dataExchangeService: createDataExchangeService({
+      repositories,
+      profileService,
+      voteService,
+    }),
   };
 
   return { db, repositories, services };
 }
 
 test('vote-tao creates a public vote message and stores message id', async () => {
-  const context = createContext();
+  const context = await createContext();
   const memberRole = createRole('member-role');
   const adminRole = createRole('admin-role');
   const attendanceChannel = createTextChannel();
@@ -178,9 +221,9 @@ test('vote-tao creates a public vote message and stores message id', async () =>
     },
   });
 
-  context.services.settingsService.setMemberRole(guild.id, memberRole.id);
-  context.services.settingsService.setAdminRole(guild.id, adminRole.id);
-  context.services.settingsService.setAttendanceChannel(guild.id, attendanceChannel.id);
+  await context.services.settingsService.setMemberRole(guild.id, memberRole.id);
+  await context.services.settingsService.setAdminRole(guild.id, adminRole.id);
+  await context.services.settingsService.setAttendanceChannel(guild.id, attendanceChannel.id);
 
   const interaction = createChatInputInteraction({
     guild,
@@ -199,7 +242,7 @@ test('vote-tao creates a public vote message and stores message id', async () =>
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Đã tạo vote mới/);
 
-  const openVote = context.services.voteService.getOpenVote(guild.id);
+  const openVote = await context.services.voteService.getOpenVote(guild.id);
   assert.ok(openVote);
   assert.equal(openVote.message_id, 'msg-1');
   assert.equal(attendanceChannel.sentMessages.size, 1);
@@ -207,11 +250,11 @@ test('vote-tao creates a public vote message and stores message id', async () =>
   const sentMessage = attendanceChannel.sentMessages.get('msg-1');
   assert.equal(sentMessage.payloads[0].content, undefined);
 
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote-tao can mention member role when ping_member is enabled', async () => {
-  const context = createContext();
+  const context = await createContext();
   const memberRole = createRole('member-role');
   const adminRole = createRole('admin-role');
   const attendanceChannel = createTextChannel();
@@ -225,9 +268,9 @@ test('vote-tao can mention member role when ping_member is enabled', async () =>
     },
   });
 
-  context.services.settingsService.setMemberRole(guild.id, memberRole.id);
-  context.services.settingsService.setAdminRole(guild.id, adminRole.id);
-  context.services.settingsService.setAttendanceChannel(guild.id, attendanceChannel.id);
+  await context.services.settingsService.setMemberRole(guild.id, memberRole.id);
+  await context.services.settingsService.setAdminRole(guild.id, adminRole.id);
+  await context.services.settingsService.setAttendanceChannel(guild.id, attendanceChannel.id);
 
   const interaction = createChatInputInteraction({
     guild,
@@ -246,14 +289,14 @@ test('vote-tao can mention member role when ping_member is enabled', async () =>
   assert.equal(sentMessage.payloads[0].content, `<@&${memberRole.id}>`);
   assert.deepEqual(sentMessage.payloads[0].allowedMentions, { roles: [memberRole.id] });
 
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote-tao blocks creating a second open vote', async () => {
-  const context = createContext();
+  const context = await createContext();
   const guild = createGuild({ roles: {}, channels: {} });
 
-  context.repositories.createVote({
+  await context.repositories.createVote({
     guildId: guild.id,
     channelId: 'attendance-channel',
     title: 'Vote đang mở',
@@ -289,11 +332,11 @@ test('vote-tao blocks creating a second open vote', async () => {
   assert.match(interaction.replies[0].content, /đã có một vote đang mở/);
 
   context.services.settingsService.validateGuildConfiguration = originalValidate;
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote-dong reports when there is no active vote', async () => {
-  const context = createContext();
+  const context = await createContext();
   const interaction = createChatInputInteraction({
     guild: createGuild({ roles: {}, channels: {} }),
     member: createMember({ isAdministrator: true }),
@@ -304,15 +347,22 @@ test('vote-dong reports when there is no active vote', async () => {
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Hiện không có vote nào đang mở/);
 
-  context.db.close();
+  await context.db.close();
 });
 
 test('vote button records member choice and updates current message payload', async () => {
-  const context = createContext();
+  const context = await createContext();
   const guild = createGuild({ roles: {}, channels: {} });
 
-  context.services.settingsService.setMemberRole(guild.id, 'member-role');
-  const vote = context.services.voteService.createVote({
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'Thang207',
+    monPhai: 'Tố Vấn',
+  });
+
+  const vote = await context.services.voteService.createVote({
     guildId: guild.id,
     channelId: 'attendance-channel',
     title: 'Vote button',
@@ -342,17 +392,19 @@ test('vote button records member choice and updates current message payload', as
   assert.equal(interaction.replies.length, 1);
   assert.match(interaction.replies[0].content, /Bạn đã chọn: Tham Gia/);
   assert.equal(message.edits.length, 1);
-  assert.equal(context.repositories.getVoteSummary(vote.id).joinCount, 1);
+  assert.equal((await context.repositories.getVoteSummary(vote.id)).joinCount, 1);
+  assert.equal((await context.repositories.getVoteResponse(vote.id, 'member-1')).snapshot_ingame_name, 'Thang207');
+  assert.equal((await context.repositories.getVoteResponse(vote.id, 'member-1')).snapshot_mon_phai, 'Tố Vấn');
 
-  context.db.close();
+  await context.db.close();
 });
 
-test('vote button rejects users without member role and closed votes', async () => {
-  const context = createContext();
+test('vote button blocks members who do not have a profile yet', async () => {
+  const context = await createContext();
   const guild = createGuild({ roles: {}, channels: {} });
 
-  context.services.settingsService.setMemberRole(guild.id, 'member-role');
-  const vote = context.services.voteService.createVote({
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  const vote = await context.services.voteService.createVote({
     guildId: guild.id,
     channelId: 'attendance-channel',
     title: 'Vote button',
@@ -360,7 +412,305 @@ test('vote button rejects users without member role and closed votes', async () 
     description: null,
     createdBy: 'admin',
   });
-  context.services.voteService.closeVote(vote.id);
+
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'join',
+    message: { async edit() {} },
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+
+  assert.equal(handled, true);
+  assert.match(interaction.replies[0].content, /\/profile set/);
+  assert.equal((await context.repositories.getVoteSummary(vote.id)).joinCount, 0);
+
+  await context.db.close();
+});
+
+test('profile command can save and show the current member profile', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: {}, channels: {} });
+
+  const setInteraction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    userId: 'member-1',
+    options: {
+      subcommand: 'set',
+      ingame_name: 'Aki',
+      mon_phai: 'Thiết Y',
+    },
+  });
+
+  await profileCommand.execute(setInteraction, context);
+  assert.match(setInteraction.replies[0].content, /Đã lưu profile của bạn/);
+
+  const viewInteraction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    userId: 'member-1',
+    options: {
+      subcommand: 'xem',
+    },
+  });
+
+  await profileCommand.execute(viewInteraction, context);
+  assert.match(viewInteraction.replies[0].content, /Aki/);
+  assert.match(viewInteraction.replies[0].content, /Thiết Y/);
+
+  await context.db.close();
+});
+
+test('profile command rejects duplicate ingame_name and allows admin set-member', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'TrungLap',
+    monPhai: 'Tố Vấn',
+  });
+
+  const duplicateInteraction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    userId: 'member-2',
+    options: {
+      subcommand: 'set',
+      ingame_name: 'TrungLap',
+      mon_phai: 'Thiết Y',
+    },
+  });
+
+  await profileCommand.execute(duplicateInteraction, context);
+  assert.match(duplicateInteraction.replies[0].content, /đã tồn tại/);
+
+  const adminSetMemberInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'set-member',
+      member: { id: 'member-3' },
+      ingame_name: 'NewName',
+      mon_phai: 'Long Ngâm',
+    },
+  });
+
+  await profileCommand.execute(adminSetMemberInteraction, context);
+  assert.match(adminSetMemberInteraction.replies[0].content, /Đã cập nhật profile/);
+  assert.equal((await context.services.profileService.getProfile(guild.id, 'member-3')).ingame_name, 'NewName');
+
+  await context.db.close();
+});
+
+test('profile export-attendance uses open vote by default', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'Exporter',
+    monPhai: 'Thần Tương',
+  });
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Export vote',
+    eventTime: 'slot-export',
+    description: null,
+    createdBy: 'admin',
+  });
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-1', 'join', await context.services.profileService.getProfile(guild.id, 'member-1'));
+
+  const exportInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'export-attendance',
+    },
+  });
+
+  await profileCommand.execute(exportInteraction, context);
+  assert.match(exportInteraction.replies[0].content, /export attendance cho vote/);
+  assert.equal(exportInteraction.replies[0].files.length, 1);
+
+  await context.db.close();
+});
+
+test('profile import-members rejects invalid payload type', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  context.services.dataExchangeService.parseJsonAttachment = async () => ({
+    type: 'attendance',
+    guild_id: guild.id,
+    items: [],
+  });
+
+  const importInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'import-members',
+      file: { url: 'https://example.invalid/file.json' },
+    },
+  });
+
+  await profileCommand.execute(importInteraction, context);
+  assert.match(importInteraction.replies[0].content, /member_profiles/);
+
+  await context.db.close();
+});
+
+test('profile import-members imports valid JSON payload', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  context.services.dataExchangeService.parseJsonAttachment = async () => ({
+    type: 'member_profiles',
+    guild_id: guild.id,
+    items: [
+      {
+        discord_user_id: 'member-9',
+        ingame_name: 'Importer',
+        mon_phai: 'Cửu Linh',
+      },
+    ],
+  });
+
+  const importInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'import-members',
+      file: { url: 'https://example.invalid/file.json' },
+    },
+  });
+
+  await profileCommand.execute(importInteraction, context);
+  assert.match(importInteraction.replies[0].content, /import thành công 1 member profile/);
+  assert.equal((await context.services.profileService.getProfile(guild.id, 'member-9')).ingame_name, 'Importer');
+
+  await context.db.close();
+});
+
+test('profile export-members returns a JSON attachment', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'ExportProfile',
+    monPhai: 'Huyết Hà',
+  });
+
+  const exportInteraction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'export-members',
+    },
+  });
+
+  await profileCommand.execute(exportInteraction, context);
+  assert.match(exportInteraction.replies[0].content, /Đang export 1 member profile/);
+  assert.equal(exportInteraction.replies[0].files.length, 1);
+
+  await context.db.close();
+});
+
+test('non-admin cannot use profile admin subcommands', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: {}, channels: {} });
+
+  const interaction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    userId: 'member-1',
+    options: {
+      subcommand: 'export-members',
+    },
+  });
+
+  await profileCommand.execute(interaction, context);
+  assert.match(interaction.replies[0].content, /không có quyền quản trị bot/);
+
+  await context.db.close();
+});
+
+test('profile set rejects invalid mon phai', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: {}, channels: {} });
+
+  const interaction = createChatInputInteraction({
+    guild,
+    member: createMember(),
+    userId: 'member-1',
+    options: {
+      subcommand: 'set',
+      ingame_name: 'BadClass',
+      mon_phai: 'Sai Môn Phái',
+    },
+  });
+
+  await profileCommand.execute(interaction, context);
+  assert.match(interaction.replies[0].content, /mon_phai/);
+
+  await context.db.close();
+});
+
+test('profile export-attendance reports when no target vote exists', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'admin-role': createRole('admin-role') }, channels: {} });
+
+  await context.services.settingsService.setAdminRole(guild.id, 'admin-role');
+
+  const interaction = createChatInputInteraction({
+    guild,
+    member: createMember({ roleIds: ['admin-role'] }),
+    userId: 'admin-user',
+    options: {
+      subcommand: 'export-attendance',
+    },
+  });
+
+  await profileCommand.execute(interaction, context);
+  assert.match(interaction.replies[0].content, /Không tìm thấy vote mục tiêu/);
+
+  await context.db.close();
+});
+
+test('vote button rejects users without member role and closed votes', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: {}, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Vote button',
+    eventTime: 'slot-button',
+    description: null,
+    createdBy: 'admin',
+  });
+  await context.services.voteService.closeVote(vote.id);
 
   const unauthorizedInteraction = createButtonInteraction({
     guild,
@@ -386,5 +736,447 @@ test('vote button rejects users without member role and closed votes', async () 
   assert.equal(closedHandled, true);
   assert.match(closedInteraction.replies[0].content, /Vote này đã đóng/);
 
-  context.db.close();
+  await context.db.close();
+});
+
+test('details button shows join detail first and does not edit the public message', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-1', ingameName: 'Aki', monPhai: 'Tố Vấn' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Binh', monPhai: 'Tố Vấn' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-3', ingameName: 'Cuong', monPhai: 'Thiết Y' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-4', ingameName: 'Dung', monPhai: 'Long Ngâm' });
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-5', ingameName: 'Hieu', monPhai: 'Huyết Hà' });
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Vote details',
+    eventTime: 'slot-details',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-1', 'join', await context.services.profileService.getProfile(guild.id, 'member-1'));
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-2', 'join', await context.services.profileService.getProfile(guild.id, 'member-2'));
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-3', 'join', await context.services.profileService.getProfile(guild.id, 'member-3'));
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-4', 'reserve', await context.services.profileService.getProfile(guild.id, 'member-4'));
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-5', 'absent', await context.services.profileService.getProfile(guild.id, 'member-5'));
+
+  const message = { edits: [], async edit(payload) { this.edits.push(payload); } };
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message,
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+
+  assert.equal(handled, true);
+  assert.equal(message.edits.length, 0);
+  assert.equal(interaction.replies.length, 1);
+  assert.equal(interaction.replies[0].ephemeral, true);
+  assert.match(interaction.replies[0].embeds[0].data.title, /Tham Gia - .*Tố Vấn/);
+  assert.match(interaction.replies[0].embeds[0].data.description, /1\. Aki/);
+  assert.match(interaction.replies[0].embeds[0].data.description, /2\. Binh/);
+  assert.doesNotMatch(interaction.replies[0].embeds[0].data.description, /Cuong/);
+  assert.equal(interaction.replies[0].components.length, 2);
+
+  const select = interaction.replies[0].components[0].components[0];
+  assert.equal(select.data.custom_id, `vote-detail:${vote.id}:list-select`);
+  assert.deepEqual(select.options.map((option) => option.data.value), [
+    `vote-detail:${vote.id}:join:1`,
+    `vote-detail:${vote.id}:reserve:1`,
+    `vote-detail:${vote.id}:absent:1`,
+  ]);
+  assert.equal(select.options[0].data.default, true);
+
+  await context.db.close();
+});
+
+test('details button allows viewing a closed vote and does not require profile', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'member-2', ingameName: 'Joiner', monPhai: 'Tố Vấn' });
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Closed details',
+    eventTime: 'slot-closed',
+    description: null,
+    createdBy: 'admin',
+  });
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-2', 'join', await context.services.profileService.getProfile(guild.id, 'member-2'));
+  await context.services.voteService.closeVote(vote.id);
+
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+    userId: 'member-1',
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+
+  assert.equal(handled, true);
+  assert.equal(interaction.replies[0].ephemeral, true);
+  assert.match(interaction.replies[0].embeds[0].data.title, /Tham Gia/);
+  assert.match(interaction.replies[0].embeds[0].data.description, /Joiner/);
+
+  await context.db.close();
+});
+
+test('details button rejects users without attendance view permission', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: {}, channels: {} });
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Vote details',
+    eventTime: 'slot-details',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember(),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+
+  assert.equal(handled, true);
+  assert.match(interaction.replies[0].content, /không có quyền xem dữ liệu điểm danh/);
+
+  await context.db.close();
+});
+
+test('join detail pages keep one sect per page and cap each page at 25 members', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+
+  for (let index = 1; index <= 25; index += 1) {
+    await context.services.profileService.saveProfile({
+      guildId: guild.id,
+      userId: `to-van-${index}`,
+      ingameName: `ToVan${String(index).padStart(2, '0')}`,
+      monPhai: 'Tố Vấn',
+    });
+  }
+
+  for (let index = 1; index <= 2; index += 1) {
+    await context.services.profileService.saveProfile({
+      guildId: guild.id,
+      userId: `thiet-y-${index}`,
+      ingameName: `ThietY${String(index).padStart(2, '0')}`,
+      monPhai: 'Thiết Y',
+    });
+  }
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Join detail pages',
+    eventTime: 'slot-join-pages',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  for (let index = 1; index <= 25; index += 1) {
+    await context.services.voteService.saveMemberChoice(vote.id, `to-van-${index}`, 'join', await context.services.profileService.getProfile(guild.id, `to-van-${index}`));
+  }
+  for (let index = 1; index <= 2; index += 1) {
+    await context.services.voteService.saveMemberChoice(vote.id, `thiet-y-${index}`, 'join', await context.services.profileService.getProfile(guild.id, `thiet-y-${index}`));
+  }
+
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+  assert.equal(handled, true);
+
+  const firstPageDescription = interaction.replies[0].embeds[0].data.description;
+  assert.match(interaction.replies[0].embeds[0].data.title, /Tố Vấn/);
+  assert.equal(firstPageDescription.split('\n').length, 25);
+  assert.match(firstPageDescription, /25\. ToVan25/);
+  assert.doesNotMatch(firstPageDescription, /ThietY/);
+  assert.match(interaction.replies[0].embeds[0].data.footer.text, /Môn phái 1\/2/);
+
+  const nextInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'noop',
+    message: { async edit() {} },
+  });
+  nextInteraction.customId = `vote-detail:${vote.id}:join:2:next`;
+
+  const nextHandled = await handleVoteButton(nextInteraction, context);
+  assert.equal(nextHandled, true);
+  assert.match(nextInteraction.updates[0].embeds[0].data.title, /Thiết Y/);
+  assert.match(nextInteraction.updates[0].embeds[0].data.description, /1\. ThietY01/);
+  assert.doesNotMatch(nextInteraction.updates[0].embeds[0].data.description, /ToVan/);
+
+  await context.db.close();
+});
+
+test('join detail pages split a sect larger than 25 into consecutive pages', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+
+  for (let index = 1; index <= 31; index += 1) {
+    await context.services.profileService.saveProfile({
+      guildId: guild.id,
+      userId: `toai-mong-${index}`,
+      ingameName: `ToaiMong${String(index).padStart(2, '0')}`,
+      monPhai: 'Toái Mộng',
+    });
+  }
+  await context.services.profileService.saveProfile({ guildId: guild.id, userId: 'huyet-ha-1', ingameName: 'HuyetHa01', monPhai: 'Huyết Hà' });
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Large sect',
+    eventTime: 'slot-large-sect',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  for (let index = 1; index <= 31; index += 1) {
+    await context.services.voteService.saveMemberChoice(vote.id, `toai-mong-${index}`, 'join', await context.services.profileService.getProfile(guild.id, `toai-mong-${index}`));
+  }
+  await context.services.voteService.saveMemberChoice(vote.id, 'huyet-ha-1', 'join', await context.services.profileService.getProfile(guild.id, 'huyet-ha-1'));
+
+  const firstInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+  });
+
+  await handleVoteButton(firstInteraction, context);
+  assert.match(firstInteraction.replies[0].embeds[0].data.title, /Toái Mộng/);
+  assert.match(firstInteraction.replies[0].embeds[0].data.footer.text, /Trang 1\/2/);
+  assert.equal(firstInteraction.replies[0].embeds[0].data.description.split('\n').length, 25);
+
+  const secondInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'noop',
+    message: { async edit() {} },
+  });
+  secondInteraction.customId = `vote-detail:${vote.id}:join:2:next`;
+
+  await handleVoteButton(secondInteraction, context);
+  assert.match(secondInteraction.updates[0].embeds[0].data.title, /Toái Mộng/);
+  assert.match(secondInteraction.updates[0].embeds[0].data.footer.text, /Trang 2\/2/);
+  assert.match(secondInteraction.updates[0].embeds[0].data.description, /26\. ToaiMong26/);
+  assert.match(secondInteraction.updates[0].embeds[0].data.description, /31\. ToaiMong31/);
+  assert.doesNotMatch(secondInteraction.updates[0].embeds[0].data.description, /HuyetHa/);
+
+  const thirdInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'noop',
+    message: { async edit() {} },
+  });
+  thirdInteraction.customId = `vote-detail:${vote.id}:join:3:next`;
+
+  await handleVoteButton(thirdInteraction, context);
+  assert.match(thirdInteraction.updates[0].embeds[0].data.title, /Huyết Hà/);
+  assert.match(thirdInteraction.updates[0].embeds[0].data.description, /1\. HuyetHa01/);
+
+  await context.db.close();
+});
+
+test('detail select menu switches to reserve and absent lists with 25 members per page', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+
+  for (let index = 1; index <= 26; index += 1) {
+    await context.services.profileService.saveProfile({
+      guildId: guild.id,
+      userId: `reserve-${index}`,
+      ingameName: `Reserve${String(index).padStart(2, '0')}`,
+      monPhai: 'Thiết Y',
+    });
+  }
+  for (let index = 1; index <= 26; index += 1) {
+    await context.services.profileService.saveProfile({
+      guildId: guild.id,
+      userId: `absent-${index}`,
+      ingameName: `Absent${String(index).padStart(2, '0')}`,
+      monPhai: 'Huyết Hà',
+    });
+  }
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Reserve absent select',
+    eventTime: 'slot-select',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  for (let index = 1; index <= 26; index += 1) {
+    await context.services.voteService.saveMemberChoice(vote.id, `reserve-${index}`, 'reserve', await context.services.profileService.getProfile(guild.id, `reserve-${index}`));
+    await context.services.voteService.saveMemberChoice(vote.id, `absent-${index}`, 'absent', await context.services.profileService.getProfile(guild.id, `absent-${index}`));
+  }
+
+  const reserveInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    value: `vote-detail:${vote.id}:reserve:1`,
+  });
+
+  const reserveHandled = await handleVoteDetailSelect(reserveInteraction, context);
+  assert.equal(reserveHandled, true);
+  assert.equal(reserveInteraction.updates[0].embeds[0].data.description.split('\n').length, 25);
+  assert.match(reserveInteraction.updates[0].embeds[0].data.title, /Dự Bị/);
+  assert.match(reserveInteraction.updates[0].embeds[0].data.description, /25\. Reserve25/);
+  assert.doesNotMatch(reserveInteraction.updates[0].embeds[0].data.description, /Reserve26/);
+  assert.equal(reserveInteraction.updates[0].components[0].components[0].options[1].data.default, true);
+
+  const reserveNextInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'noop',
+    message: { async edit() {} },
+  });
+  reserveNextInteraction.customId = `vote-detail:${vote.id}:reserve:2:next`;
+
+  await handleVoteButton(reserveNextInteraction, context);
+  assert.match(reserveNextInteraction.updates[0].embeds[0].data.description, /26\. Reserve26/);
+
+  const absentInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    value: `vote-detail:${vote.id}:absent:1`,
+  });
+
+  const absentHandled = await handleVoteDetailSelect(absentInteraction, context);
+  assert.equal(absentHandled, true);
+  assert.equal(absentInteraction.updates[0].embeds[0].data.description.split('\n').length, 25);
+  assert.match(absentInteraction.updates[0].embeds[0].data.title, /Không Tham Gia/);
+  assert.match(absentInteraction.updates[0].embeds[0].data.description, /25\. Absent25/);
+
+  await context.db.close();
+});
+
+test('detail views show clear empty states for all lists', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Empty details',
+    eventTime: 'slot-empty',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  const joinInteraction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+  });
+
+  await handleVoteButton(joinInteraction, context);
+  assert.match(joinInteraction.replies[0].embeds[0].data.description, /Chưa có người vote Tham Gia/);
+
+  const reserveInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    value: `vote-detail:${vote.id}:reserve:1`,
+  });
+  await handleVoteDetailSelect(reserveInteraction, context);
+  assert.match(reserveInteraction.updates[0].embeds[0].data.description, /Chưa có người vote Dự Bị/);
+
+  const absentInteraction = createSelectInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    value: `vote-detail:${vote.id}:absent:1`,
+  });
+  await handleVoteDetailSelect(absentInteraction, context);
+  assert.match(absentInteraction.updates[0].embeds[0].data.description, /Chưa có người vote Không Tham Gia/);
+
+  await context.db.close();
+});
+
+test('details view prefers current profile over snapshot fallback', async () => {
+  const context = await createContext();
+  const guild = createGuild({ roles: { 'member-role': createRole('member-role') }, channels: {} });
+
+  await context.services.settingsService.setMemberRole(guild.id, 'member-role');
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'TenCu',
+    monPhai: 'Tố Vấn',
+  });
+
+  const vote = await context.services.voteService.createVote({
+    guildId: guild.id,
+    channelId: 'attendance-channel',
+    title: 'Vote details',
+    eventTime: 'slot-details',
+    description: null,
+    createdBy: 'admin',
+  });
+
+  await context.services.voteService.saveMemberChoice(vote.id, 'member-1', 'join', await context.services.profileService.getProfile(guild.id, 'member-1'));
+  await context.services.profileService.saveProfile({
+    guildId: guild.id,
+    userId: 'member-1',
+    ingameName: 'TenMoi',
+    monPhai: 'Thiết Y',
+  });
+
+  const interaction = createButtonInteraction({
+    guild,
+    member: createMember({ roleIds: ['member-role'] }),
+    voteId: vote.id,
+    choice: 'details',
+    message: { async edit() {} },
+    userId: 'member-1',
+  });
+
+  const handled = await handleVoteButton(interaction, context);
+
+  assert.equal(handled, true);
+  assert.match(interaction.replies[0].embeds[0].data.title, /Thiết Y/);
+  assert.match(interaction.replies[0].embeds[0].data.description, /TenMoi/);
+  assert.doesNotMatch(interaction.replies[0].embeds[0].data.title, /Tố Vấn/);
+
+  await context.db.close();
 });

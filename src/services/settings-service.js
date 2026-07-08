@@ -18,7 +18,7 @@ function createSettingsService(repositories) {
   }
 
   async function validateGuildConfiguration(guild) {
-    const settings = repositories.getGuildSettings(guild.id) || {};
+    const settings = await repositories.getGuildSettings(guild.id) || {};
     const issues = [];
 
     const adminRole = await resolveRole(guild, settings.admin_role_id);
@@ -57,19 +57,19 @@ function createSettingsService(repositories) {
   }
 
   return {
-    getSettings(guildId) {
+    async getSettings(guildId) {
       return repositories.getGuildSettings(guildId);
     },
 
-    setAttendanceChannel(guildId, channelId) {
+    async setAttendanceChannel(guildId, channelId) {
       return repositories.setGuildAttendanceChannel(guildId, channelId, nowIso());
     },
 
-    setMemberRole(guildId, roleId) {
+    async setMemberRole(guildId, roleId) {
       return repositories.setGuildMemberRole(guildId, roleId, nowIso());
     },
 
-    setAdminRole(guildId, roleId) {
+    async setAdminRole(guildId, roleId) {
       return repositories.setGuildAdminRole(guildId, roleId, nowIso());
     },
 

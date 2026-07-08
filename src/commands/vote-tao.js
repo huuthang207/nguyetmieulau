@@ -32,7 +32,7 @@ const data = new SlashCommandBuilder()
 
 async function execute(interaction, context) {
   const { settingsService, voteService } = context.services;
-  const settings = settingsService.getSettings(interaction.guildId);
+  const settings = await settingsService.getSettings(interaction.guildId);
 
   if (!isBotAdmin(interaction.member, settings)) {
     await interaction.reply({
@@ -51,7 +51,7 @@ async function execute(interaction, context) {
     return;
   }
 
-  const existingVote = voteService.getOpenVote(interaction.guildId);
+  const existingVote = await voteService.getOpenVote(interaction.guildId);
   if (existingVote) {
     await interaction.reply({
       content: 'Hiện đã có một vote đang mở. Hãy đóng vote hiện tại trước khi tạo vote mới.',
@@ -65,7 +65,7 @@ async function execute(interaction, context) {
   const description = interaction.options.getString('description')?.trim() || null;
   const pingMember = interaction.options.getBoolean('ping_member') ?? false;
 
-  const vote = voteService.createVote({
+  const vote = await voteService.createVote({
     guildId: interaction.guildId,
     channelId: config.attendanceChannel.id,
     title,
@@ -74,7 +74,7 @@ async function execute(interaction, context) {
     createdBy: interaction.user.id,
   });
 
-  const summary = voteService.getVoteSummary(vote.id);
+  const summary = await voteService.getVoteSummary(vote.id);
 
   try {
     const sentMessage = await config.attendanceChannel.send({
@@ -83,9 +83,9 @@ async function execute(interaction, context) {
       allowedMentions: pingMember ? { roles: [config.memberRole.id] } : undefined,
     });
 
-    voteService.updateVoteMessageId(vote.id, sentMessage.id);
+    await voteService.updateVoteMessageId(vote.id, sentMessage.id);
   } catch (error) {
-    voteService.deleteVote(vote.id);
+    await voteService.deleteVote(vote.id);
     throw error;
   }
 

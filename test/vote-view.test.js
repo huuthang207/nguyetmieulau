@@ -12,12 +12,19 @@ function createTempDatabasePath() {
   return path.join(directory, 'test.sqlite');
 }
 
-test('resolveVoteForView returns the most recent historical vote when no open vote exists', () => {
-  const db = createDatabase(createTempDatabasePath());
+async function createSqliteDatabase() {
+  return createDatabase({
+    databaseClient: 'sqlite',
+    databasePath: createTempDatabasePath(),
+  });
+}
+
+test('resolveVoteForView returns the most recent historical vote when no open vote exists', async () => {
+  const db = await createSqliteDatabase();
   const repositories = createRepositories(db);
   const voteService = createVoteService(repositories);
 
-  const voteA = voteService.createVote({
+  const voteA = await voteService.createVote({
     guildId: 'guild-view',
     channelId: 'channel-1',
     title: 'Vote A',
@@ -25,9 +32,9 @@ test('resolveVoteForView returns the most recent historical vote when no open vo
     description: null,
     createdBy: 'admin',
   });
-  voteService.closeVote(voteA.id);
+  await voteService.closeVote(voteA.id);
 
-  const voteB = voteService.createVote({
+  const voteB = await voteService.createVote({
     guildId: 'guild-view',
     channelId: 'channel-1',
     title: 'Vote B',
@@ -35,13 +42,13 @@ test('resolveVoteForView returns the most recent historical vote when no open vo
     description: null,
     createdBy: 'admin',
   });
-  repositories.updateVoteMessageId(voteB.id, null);
-  voteService.closeVote(voteB.id);
+  await repositories.updateVoteMessageId(voteB.id, null);
+  await voteService.closeVote(voteB.id);
 
-  const resolved = voteService.resolveVoteForView('guild-view');
+  const resolved = await voteService.resolveVoteForView('guild-view');
 
   assert.equal(resolved.vote.id, voteB.id);
   assert.equal(resolved.vote.title, 'Vote B');
 
-  db.close();
+  await db.close();
 });
